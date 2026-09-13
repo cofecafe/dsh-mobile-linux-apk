@@ -285,6 +285,13 @@
     `--privileged` 也救不了。修法（`build-rootfs-debian.mjs` 已内建）：构建工作区放容器内部文件系统
     （docker 转发自动注入 `DSH_ROOTFS_WORK=/tmp/rootfs-work`），只把最终 tar.xz / sha256 / 指纹写回挂载卷
     （单文件顺序写，virtiofs 开销可忽略）；顺带万级小文件的解包 I/O 全留在容器 overlayfs 上，比卷挂载快一个量级。
+96. **OrbStack 7.0.x 内核上 proot 全 tracee 即刻 SIGSEGV（4Debian G1-pre 实锤）**：内核
+    `7.0.14-orbstack`（aarch64）上，proot **5.2.0（bookworm）与 5.4.0（trixie）双版本复现**——
+    任何 tracee（/bin/echo、id、python3、node 全试过）一 exec 即 signal 11；`PROOT_NO_SECCOMP=1`
+    无效。是否泛化到 Linux 7.x 未证实（OrbStack 定制内核亦可能是变量）。影响面 = **本地 G1-pre 阻断**，
+    不影响 G1 本体（MuMu 的 Android 内核）与真机。防线：`scripts/rootfs-proot-pre.sh` 内核主版本 ≥7
+    主动拒绝（exit 3 + 替代路径提示，FORCE_G1PRE=1 可强行复现）；G1-pre 换 GHA 6.x 内核 runner 跑。
+    另注：trixie proot 5.4 需 GLIBC_2.38——验证容器必须 trixie+（bookworm 容器装不上，坑 96 连带）。
 
 
 

@@ -2,19 +2,28 @@
 # rootfs-proot-pre.sh — 4Debian P1 G1-pre：在 Linux 容器内用发行版 proot 验证 rootfs 的
 #   路径翻译 / 绑定 / 深层 exec 链（node→npm→原生二进制）。Android 专属面（SELinux、
 #   Termux bionic proot、exec 拒绝）不在本脚本范围——那部分是 G1 本体（MuMu）与 G4（真机）。
-# 用法（宿主经 docker 平台匹配容器执行）：
-#   docker run --rm --platform linux/<arm64|amd64> -v <repo>:/repo node:22-bookworm \
+# 用法（宿主容器必须 trixie+：proot 5.4 需 GLIBC_2.38，bookworm 容器跑不了）：
+#   docker run --rm --platform linux/<arm64|amd64> -v <repo>:/repo debian:trixie \
 #     bash /repo/scripts/rootfs-proot-pre.sh /repo/.deploy-tmp/rootfs-debian/<abi>/snapshot.tar.xz
-# 注意：proot 依赖 ptrace；Docker ≥19.03 默认 seccomp 已放行 ptrace，若环境拦截需
-#   --security-opt seccomp=unconfined。出口判据全过 = exit 0。
+# ⚠️ 坑 96：OrbStack 7.0.x 内核上 proot（5.2 与 5.4 双版本复现）所有 tracee 即刻 SIGSEGV
+#   （PROOT_NO_SECCOMP=1 无效）——本脚本在主版本 ≥7 的内核上主动拒绝；请换 GHA 6.x 内核
+#   runner 跑，或直接在 MuMu（Android 内核）上做 G1 本体。FORCE_G1PRE=1 可强行。
+# 注意：proot 依赖 ptrace；Docker ≥19.03 默认 seccomp 已放行 ptrace。出口判据全过 = exit 0。
 set -euo pipefail
 TARBALL="${1:?用法: rootfs-proot-pre.sh <snapshot.tar.xz>}"
 W=/tmp/g1pre
 R=$W/rootfs
 
-echo "── 安装 proot（发行版）"
-apt-get update -qq && apt-get install -y -qq proot >/dev/null
-proot --version | head -1
+KREL=$(uname -r); KMAJ=${KREL%%.*}
+if [ "$KMAJ" -ge 7 ] && [ "${FORCE_G1PRE:-0}" != "1" ]; then
+  echo "✗ 内核 $KREL 主版本 ≥7：proot 已知 SIGSEGV（坑 96，OrbStack 7.0.14 双版本实锤）。" >&2
+  echo "  替代：GHA 6.x runner / MuMu 实测。FORCE_G1PRE=1 可强行复现。" >&2
+  exit 3
+fi
+
+echo "── 内核 $KREL / 安装 proot（trixie 5.4）"
+apt-get update -qq && apt-get install -y -qq proot tar xz-utils ca-certificates >/dev/null
+proot --version 2>/dev/null | head -2
 
 echo "── 解压 $TARBALL"
 rm -rf "$W" && mkdir -p "$W"
