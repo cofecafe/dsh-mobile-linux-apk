@@ -134,11 +134,15 @@ step('② apt update + 安装目标包',
   `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive apt-get update && ` +
   `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${targets.join(' ')}`)
 
-// ── 3. Node.js（nodesource 时）─────────────────────────────────────────
+// ── 3. Node.js（nodesource 时；keyring 直装法，不跑上游 setup 脚本——免嵌套引号/免 gnupg）──
 if (CFG.nodejs.strategy === 'nodesource') {
-  step(`③ NodeSource nodejs ${CFG.nodejs.major}.x（Q1 定版前可换 distro）`,
-    `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive bash -c ` +
-    `"'curl -fsSL https://deb.nodesource.com/setup_${CFG.nodejs.major}.x | bash - && apt-get install -y --no-install-recommends nodejs'"`)
+  const major = CFG.nodejs.major
+  step(`③ NodeSource nodejs ${major}.x（keyring 直装，Q1 定版前可换 distro）`,
+    `mkdir -p ${ROOTFS}/usr/share/keyrings && ` +
+    `curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o ${ROOTFS}/usr/share/keyrings/nodesource.gpg && ` +
+    `printf 'deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${major}.x nodistro main\\n' > ${ROOTFS}/etc/apt/sources.list.d/nodesource.list && ` +
+    `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive apt-get update && ` +
+    `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs`)
 } else {
   log0(`${DRY}③ nodejs 走发行版包（strategy=distro，已在 targets 或需补入）`)
 }
