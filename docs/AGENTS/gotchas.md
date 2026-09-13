@@ -355,3 +355,15 @@
 
 
 
+
+102. **D-6 启动器三课（LD_PRELOAD exec 族拦截器，A/B 全 PASS，2026-09-13）**：glibc 孪生
+    libtermux-exec（`scripts/d6-exec-hook.c` → libd6exec.so，装 rootfs/opt/d6/，env：D6_LDSO/D6_ROOT +
+    LD_PRELOAD）。拦截面必须含 **posix_spawn/posix_spawnp（node/libuv 实际路径）**，仅 execve 族不够。
+    ① **宿主 /bin/sh 是 toybox（bionic）——钩子管不进 bionic 进程**：execSync 硬编码 /bin/sh，toybox 替
+    guest 二进制 PATH 命中后自己裸 exec 必 ENOENT → 修法 = /bin、/usr 前缀** guest 优先**重映射（连宿主
+    存在也让位 guest dash，dash 是 glibc+preload → 递归受管，链路闭合）；/system、/vendor 宿主域不碰。
+    ② **shebang 判定必须递归解释器本体**：「宿主存在→放行」弱启发会放走 guest 绝对路径解释器（宿主上
+    存在≠宿主能 exec）→ 判定改为 d6_wrap_plan：解释器 guest 重映射后按 PT_INTERP 递归判 glibc。③ 包装形：
+    ELF = [ldso,--argv0,argv0,bin,args…]；shebang = [ldso,--argv0,argv0,interp,script,args…]（kernel
+    语义近似；shebang 单参数限制为原型缺口）。验收：A/B 对照（无钩子 5/5 FAIL ↔ 有钩子 5/5 PASS：execSync
+    /spawnSync PATH/绝对路径/嵌套孙进程/shebang，git 2.39.5+rg 13 全链）。

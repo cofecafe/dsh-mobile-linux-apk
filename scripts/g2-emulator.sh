@@ -42,11 +42,38 @@ export TMPDIR=$R/tmp
 export PATH=$R/usr/bin:/system/bin
 export SSL_CERT_FILE=$R/etc/ssl/certs/ca-certificates.crt
 export CURL_CA_BUNDLE=$R/etc/ssl/certs/ca-certificates.crt
+# D-6 启动器（P2 原型）：LD_PRELOAD exec 族拦截器——guest glibc 二进制/shebang 自动改写为 ld.so 包装
+export D6_LDSO=$L/ld-linux-aarch64.so.1
+export D6_ROOT=$R
+export LD_PRELOAD=$R/opt/d6/libd6exec.so
 case "$1" in
   start)
     cd $R/home
     exec $L/ld-linux-aarch64.so.1 $R/usr/bin/node --expose-internals \
       $R/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js web --port @PORT@ --no-open
+    ;;
+  spawn)
+    # D-6 启动器 A/B 实测：node(libuv=posix_spawn) 生成 guest 工具链子进程
+    exec $L/ld-linux-aarch64.so.1 $R/usr/bin/node -e "
+      const cp = require('child_process'), fs = require('fs')
+      const q = String.fromCharCode(39)
+      const cases = [
+        ['posix_spawn PATH 搜索', () => cp.execSync('git --version').toString().trim()],
+        ['posix_spawn 绝对路径', () => cp.execSync(process.env.D6_ROOT + '/usr/bin/rg --version').toString().split('\n')[0]],
+        ['嵌套孙进程', () => cp.execSync('bash -c "bash -c ' + q + 'git --version' + q + '"').toString().trim()],
+        ['shebang 脚本', () => {
+          const s = process.env.DSH_HOME + '/spawn-test.sh'
+          fs.writeFileSync(s, '#!' + process.env.D6_ROOT + '/usr/bin/bash\ngit --version\n')
+          fs.chmodSync(s, 0o755)
+          return cp.execSync(s).toString().trim()
+        }],
+      ]
+      let fail = 0
+      for (const [name, fn] of cases) {
+        try { console.log('PASS', name, '=>', fn()); }
+        catch (e) { fail++; console.log('FAIL', name, '=>', (e.message || String(e)).split('\n')[0]); }
+      }
+      process.exit(fail ? 1 : 0)"
     ;;
   probe)
     # 设备端自检：node fetch 127.0.0.1:@PORT@（不经 adb forward 的原位证据）

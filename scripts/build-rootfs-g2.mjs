@@ -45,6 +45,11 @@ if (!existsSync(ROOTFS_SRC)) {
   console.error(`缺 Debian rootfs 快照: ${ROOTFS_SRC}\n先跑: node scripts/build-rootfs-debian.mjs ${TARBALL_ABI}`)
   process.exit(2)
 }
+const HOOK = join(ROOT, `.deploy-tmp/tools/d6-exec-hook-${TARBALL_ABI}.so`)
+if (!existsSync(HOOK)) {
+  console.error(`缺 D-6 exec 钩子: ${HOOK}\n先跑: node scripts/build-d6-hook.mjs ${TARBALL_ABI}`)
+  process.exit(2)
+}
 const ensureLfs = async (file) => {
   if (statSync(file).size > 1000) return
   const oid = readFileSync(file, 'utf8').match(/oid sha256:([0-9a-f]{64})/)?.[1]
@@ -149,7 +154,11 @@ tar -xzf "${rp(join(CACHE, cacheFile(koffiPlat, koffiVer)))}" -C /tmp/kpkg
 mkdir -p "\$NM/@koromix/${koffiPlat.split('/')[1]}" "\$NM/koffi/build/koffi/linux_${KOFFI_ARCH}"
 cp -a "/tmp/kpkg/package/linux_${KOFFI_ARCH}" "\$NM/@koromix/${koffiPlat.split('/')[1]}/linux_${KOFFI_ARCH}"
 cp "/tmp/kpkg/package/linux_${KOFFI_ARCH}/koffi.node" "\$NM/koffi/build/koffi/linux_${KOFFI_ARCH}/"
-echo "[容器] ⑤ 断言 + 归档"
+echo "[容器] ⑤ D-6 启动器钩子（LD_PRELOAD exec 族拦截器，P2 原型）"
+mkdir -p rootfs/opt/d6
+cp ${rp(join(ROOT, `.deploy-tmp/tools/d6-exec-hook-${TARBALL_ABI}.so`))} rootfs/opt/d6/libd6exec.so
+test -f rootfs/opt/d6/libd6exec.so || { echo "d6 钩子缺失"; exit 5; }
+echo "[容器] ⑥ 断言 + 归档"
 PJ_VER=\$(python3 -c "import json; print(json.load(open('\$E/package.json'))['version'])")
 [ "\$PJ_VER" = "${OVERLAY.engineVersion}" ] || { echo "根包版本 \$PJ_VER != ${OVERLAY.engineVersion}"; exit 5; }
 test -f "\$E/lib/bin.js" || { echo "lib/bin.js 缺失"; exit 5; }
