@@ -107,7 +107,9 @@ if (RUN && process.env.DSH_ROOTFS_IN_CONTAINER !== '1') {
 }
 if (RUN) {
   const cross = process.arch !== (ABI === 'arm64' ? 'arm64' : 'x64')
-  requireTools(['debootstrap', 'tar', 'xz', ...(cross ? [`qemu-${DEB_ARCH === 'arm64' ? 'aarch64' : 'x86_64'}-static`] : [])])
+  requireTools(['debootstrap', 'tar', 'xz',
+    ...(CFG.nodejs.strategy === 'nodesource' ? ['gpg'] : []),
+    ...(cross ? [`qemu-${DEB_ARCH === 'arm64' ? 'aarch64' : 'x86_64'}-static`] : [])])
 }
 
 // ── 1. rootfs 引导（debootstrap minbase）───────────────────────────────
@@ -139,7 +141,7 @@ if (CFG.nodejs.strategy === 'nodesource') {
   const major = CFG.nodejs.major
   step(`③ NodeSource nodejs ${major}.x（keyring 直装，Q1 定版前可换 distro）`,
     `mkdir -p ${ROOTFS}/usr/share/keyrings && ` +
-    `curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o ${ROOTFS}/usr/share/keyrings/nodesource.gpg && ` +
+    `curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o ${ROOTFS}/usr/share/keyrings/nodesource.gpg && ` +
     `printf 'deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${major}.x nodistro main\\n' > ${ROOTFS}/etc/apt/sources.list.d/nodesource.list && ` +
     `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive apt-get update && ` +
     `chroot ${ROOTFS} env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs`)
