@@ -101,6 +101,17 @@ const koffiVer = JSON.parse(execFileSync('tar',
   ['-xJOf', BASE_USR, 'usr/lib/node_modules/@deepseek-ai/dsh/node_modules/koffi/package.json'], { encoding: 'utf8' })).version
 const koffiPlat = `@koromix/koffi-linux-${KOFFI_ARCH}`
 await overlayTgz(koffiPlat, koffiVer)
+
+// node-addon-system 平台包（坑107：flock-F3 补丁在 linux 上 require.resolve 平台包 → 缺包即
+// 「Cannot find module .../node-addon-system-linux-arm64/package.json」，会话首回合即炸——
+// 引擎 overlay 登记表不含 optional 平台依赖，base-usr 树同缺。版本锁 node-addon-system 的
+// package.json optionalDependencies；包内自带 bin/glibc/system.node + bin/landlock-run）
+const nasVer = JSON.parse(execFileSync('tar',
+  ['-xzOf', join(CACHE, cacheFile('@deepseek-ai/node-addon-system', '0.1.2')), 'package/package.json'], { encoding: 'utf-8' })).optionalDependencies[`@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}`]
+if (!nasVer) throw new Error('node-addon-system@0.1.2 未声明平台包版本')
+const nasPlat = `@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}`
+await overlayTgz(nasPlat, nasVer)
+log(`node-addon-system 平台包 ${nasPlat}@${nasVer} 就绪`)
 log(`overlay tgz 就绪 · koffi 平台包 ${koffiPlat}@${koffiVer}`)
 
 // ── 2. manifest（tgz 文件名 + 目标相对 NM 路径；npm 布局下 scoped 名即路径）────
@@ -165,6 +176,13 @@ cp -a "/tmp/kpkg/package/linux_${KOFFI_ARCH}" "\$NM/@koromix/${koffiPlat.split('
 cp "/tmp/kpkg/package/linux_${KOFFI_ARCH}/koffi.node" "\$NM/koffi/build/koffi/linux_${KOFFI_ARCH}/"
 echo "[容器] ⑤¾ 引擎运行时补丁（对齐 Termux 生产件：F2-F7/G1/G2/N1，registry 登记表同一来源）"
 node /repo/scripts/patches/apply-patches.mjs rootfs --apply --scope engine
+
+echo "[容器] ④b node-addon-system 平台包（坑107：flock-F3 的 require.resolve 目标，缺包会话首回合即炸）"
+rm -rf /tmp/naspkg; mkdir -p /tmp/naspkg
+tar -xzf "${rp(join(CACHE, cacheFile(nasPlat, nasVer)))}" -C /tmp/naspkg
+rm -rf "\$NM/@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}"
+cp -a "/tmp/naspkg/package" "\$NM/@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}"
+test -f "\$NM/@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}/bin/glibc/system.node" || { echo "node-addon-system 平台包缺失"; exit 5; }
 
 echo "[容器] ⑤ D-6 启动器钩子（LD_PRELOAD exec 族拦截器，P2 原型）"
 mkdir -p rootfs/opt/d6
