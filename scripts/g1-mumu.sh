@@ -17,9 +17,9 @@ D=/data/local/tmp/g1
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
-if [[ "$PORT" == emulator-* ]]; then SER="$PORT"; else
-  "$ADB" connect "127.0.0.1:$PORT" >/dev/null; SER="127.0.0.1:$PORT"
-fi
+if [[ "$PORT" == *:* ]]; then SER="$PORT"; "$ADB" connect "$PORT" >/dev/null   # host:port（无线 ADB）直用
+elif [[ "$PORT" == emulator-* ]]; then SER="$PORT"
+else "$ADB" connect "127.0.0.1:$PORT" >/dev/null; SER="127.0.0.1:$PORT"; fi
 "$ADB" devices | grep -q "$SER.*device" || { echo "✗ 设备未连上"; exit 2; }
 S="$ADB -s $SER"
 

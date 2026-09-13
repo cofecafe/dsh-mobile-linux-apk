@@ -304,6 +304,21 @@
     仍会 ENOENT（内核在宿主命名空间找 /lib/ld-linux…），fork+exec 子进程需全部经 ld.so 包装（D-6 启动器的
     设计约束）。设备侧另实锤：解包面 mknod/hardlink 双拒 → 归档必须 `--exclude=rootfs/dev` +
     `--hard-dereference`（已修入 build-rootfs-debian.mjs ⑥，坑 97 连带）。
+98. **R-1 反转 + vivo Android 16 真机实测定局（4Debian G1/G4 批，PJZ110/Android 16/SDK 36/内核 6.6.118）**：
+    ① **R-1 反转**——app 域（`run-as com.dsharnessmobile.shell`，u0_a780/untrusted_app）从
+    `files/` 与 `code_cache/` **exec glibc 自足 ELF（ld.so）全部成功**：EngineManager.kt:1212
+    注释宣称的「Android 16 exec 拒绝」在当前系统版本（2026-09 实测）**不成立**（历史成因待查：
+    OTA 行为变化/当时环境差异/解压位缺失都可能）。② **app 域完整 D-6 生产链全绿**：`files/` 内
+    自足集（ld.so + node + 8 个 glibc 库，零外部依赖）`ld.so + LD_LIBRARY_PATH + node` →
+    v22.23.2，V8/fs 全活。③ **proot 在此设备 EACCES**：Termux proot 5.1.107.92 主程序可跑、
+    路径翻译正确，但 exec 环节 Permission denied（非 node 特异、非 SELinux exec avc、
+    `PROOT_ASSUME_MEMFD_UNSUPPORTED=1` 无效）——vivo 加固拦截 proot 的 exec 机制；对照：模拟器
+    ARM64 上同环节是 ENOENT（坑 97）。④ **设计结论：D-6 从备胎升主路径**——双轨形态改为
+    「D-6 ld.so 包装直启（通用兜底）+ proot（可用则增强）」。⑤ 设备侧杂项：无线 ADB 熄屏即断线
+    （mdns 重新发现端口即可重连，配对一次长期有效）；app 域对 `/data/local/tmp` 无 PROT_EXEC
+    mmap 权（"failed to map segment"——生产 rootfs 必须整体落在 app files/ 内，本来也是设计
+    如此）；toybox `cp` 对无执行位源文件（libstdc++.so.6.0.30 为 0644）会 Permission denied，
+    `cat >` 直灌绕过。
 
 
 

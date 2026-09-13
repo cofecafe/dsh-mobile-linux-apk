@@ -110,7 +110,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 | 阶段 | 内容 | 出口门禁 |
 |---|---|---|
 | **P0**（本提交） | ADR 文档 + rootfs 构建骨架与配置（dry-run 默认）+ 分支建立 | 骨架 dry-run 可跑 |
-| **P1** rootfs PoC | x86_64 模拟器（MuMu）优先：debootstrap minbase → 装包 → 瘦身 → 归档；手工 proot 引导 | **进行中**：构建链✅（arm64/x86_64 双 ABI 绿）+ **G3-lite✅**（双 ABI：esbuild/sharp 预编译直装即用）+ **G1 关键证据✅**（官方 AVD·Android 14 ARM64：`ld.so + LD_LIBRARY_PATH + node` 直启链完整运行 v22.23.2——**D-6 备胎前提全部验证**；proot 完整链在 ARM64 模拟器环境性受阻，坑 97 三重壁记录，判决移至真机）；待：**G1-proot 真机裁决**（与 G4 合并一次实验）、**G2** rootfs 内引擎起来、**G3 完整版**、**G4** R-1 缓解在 Android 16 真机验证 |
+| **P1** rootfs PoC | debootstrap minbase → 装包 → 瘦身 → 归档；引导链实测 | **主体完成（2026-09-13 真机定局，坑 98）**：构建链✅（双 ABI 绿）+ G3-lite✅（双 ABI：esbuild/sharp 直装即用）+ **G1✅（vivo Android 16 真机：app 域 files/ 内自足 D-6 链完整运行 v22.23.2）** + **G4/R-1✅（反转：app 域 exec glibc 自足 ELF 不被拒——探针 files/ 与 code_cache/ 双通过）**；proot 在 vivo EACCES（加固拦截，D-6 不依赖）；**D-6 从备胎升主路径（见 R-1 更新）**。余项：G2（rootfs 内引擎起来，走 D-6 链）、G3 完整版 |
 | **P2** 壳侧集成 | 解压契约、启动链、DNS、绑定表、控制台、探针 | MuMu 模拟器 V1-V8 矩阵全绿 |
 | **P3** 更新双轨 | manifest channel 扩展、探针门控、灰度下发 | 模拟器上双通道切换/回退无残留 |
 | **P4** 性能门禁 | 对比 Termux 基线：引擎冷启、pnpm install（中型仓）、rg 大仓搜索、git status（大仓） | 阈值 **≤3×**；超限 → D-6 备胎评估或终止决策（回滚成本 = 弃分支，main 零污染） |
@@ -121,7 +121,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 
 ## 7. 风险登记（按严重度降序）
 
-- **R-1【最高】Android 16+ exec 拒绝**：EngineManager.kt:1212 注释实锤（vivo/Android 16，targetSdk 34 不豁免，直 exec EACCES）；现行解法是 bionic 钩子改走 `/system/bin/linker64`，**救不了 glibc tracee**。缓解候选：**A)** rootfs `/etc/ld.so.preload` 挂 glibc 版 execve 钩子（需 PoC：bionic linker64 能否装载 glibc ELF 的 DT_NEEDED 链）；**B)** proot 执行路径调整（PTRACE_SYSEMU 层面）；**C)** 双轨回落（D-3，Android 16+ 设备只给 Termux 通道）。G1/G4 第一优先验证。
+- **R-1【已反转·2026-09-13 真机实测】Android 16 exec 拒绝**：EngineManager.kt:1212 注释宣称的拒绝在 vivo PJZ110/Android 16/SDK 36（2026-09 实测）**不成立**——app 域从 `files/`、`code_cache/` exec glibc 自足 ELF（ld.so）全部成功，且自足 D-6 链（ld.so+node+8 库）完整运行（坑 98）。**残余真风险（改挂 R-1′）**：① vivo 加固拦截 **proot** 的 exec 机制（EACCES，`PROOT_ASSUME_MEMFD_UNSUPPORTED` 无效）——proot 增强路径在此类设备不可用；② 裸 exec 带 PT_INTERP 的 glibc 二进制仍 ENOENT（宿主命名空间无 `/lib/ld-linux`）——**D-6 启动器必须包装所有 fork+exec**（`ld.so <bin>` 形式）；③ 历史「拒绝」成因待查（若为系统版本差异，老版本 vivo 固件仍可能拒绝——下发前跑能力探针，D-3 双轨不变）。**设计调整：D-6 ld.so 包装直启升为主路径**，proot 降为可用则用的增强。
 - **R-2【高】proot ptrace 开销**：fork/stat 密集操作（pnpm install、git、大仓 rg）常见 1.5-3× 慢。P4 阈值卡门；备胎 D-6（glibc 直启，无 ptrace；但 R-1 同样适用于直启链）。
 - **R-3【低→实测好于预估】体积**：**P1 实测 arm64：xz 78.4MB / 解压 505MB**（原预估 300–350MB / ~1GB——minbase + 剥离干净 + 无编译链的收益；参照 Termux 快照 xz ~155MB / 解压 ~740MB）。注意尚未注入 dsh overlay/插件，最终体积待注入后复核。D-3 双轨 + 在线下发仍保留（APK 不膨胀）。解压时长窗口（坑 37 口径）预计短于现快照。
 - **R-4【中】DNS/网络**：resolv.conf 生成时机（每次引擎启动前）、VPN / 私有 DNS 方差（P2 实测）。
