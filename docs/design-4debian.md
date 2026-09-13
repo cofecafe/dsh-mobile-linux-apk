@@ -110,7 +110,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 | 阶段 | 内容 | 出口门禁 |
 |---|---|---|
 | **P0**（本提交） | ADR 文档 + rootfs 构建骨架与配置（dry-run 默认）+ 分支建立 | 骨架 dry-run 可跑 |
-| **P1** rootfs PoC | debootstrap minbase → 装包 → 瘦身 → 归档；引导链实测 | **主体完成（2026-09-13 真机定局，坑 98）**：构建链✅（双 ABI 绿）+ G3-lite✅（双 ABI：esbuild/sharp 直装即用）+ **G1✅（vivo Android 16 真机：app 域 files/ 内自足 D-6 链完整运行 v22.23.2）** + **G4/R-1✅（反转：app 域 exec glibc 自足 ELF 不被拒——探针 files/ 与 code_cache/ 双通过）**；proot 在 vivo EACCES（加固拦截，D-6 不依赖）；**D-6 从备胎升主路径（见 R-1 更新）**。余项：G2（rootfs 内引擎起来，走 D-6 链）、G3 完整版 |
+| **P1** rootfs PoC | debootstrap minbase → 装包 → 瘦身 → 归档；引导链实测 | **G1✅G2✅G3-lite✅（G4 核心证据已取）**：构建链双 ABI 绿；G1 = 真机/模拟器/shell+app 域 D-6 链全绿（R-1 反转，坑 98）；**G2 = dsh 引擎（0.1.1-rc.2 基座嫁接 + koffi linux_arm64 补配，坑 99）在 Android 14 模拟器以 D-6 链跑起 `dsh web` @3080，设备端 fetch + adb forward 双 HTTP 200**；G3-lite 双 ABI（esbuild/sharp 直装即用）；proot 降为增强（vivo EACCES / 模拟器 ENOENT）。余项：G3 完整版、引擎 overlay 升级至 0.1.5-rc.1 接线（P2）、真机 G2 复验 |
 | **P2** 壳侧集成 | 解压契约、启动链、DNS、绑定表、控制台、探针 | MuMu 模拟器 V1-V8 矩阵全绿 |
 | **P3** 更新双轨 | manifest channel 扩展、探针门控、灰度下发 | 模拟器上双通道切换/回退无残留 |
 | **P4** 性能门禁 | 对比 Termux 基线：引擎冷启、pnpm install（中型仓）、rg 大仓搜索、git status（大仓） | 阈值 **≤3×**；超限 → D-6 备胎评估或终止决策（回滚成本 = 弃分支，main 零污染） |

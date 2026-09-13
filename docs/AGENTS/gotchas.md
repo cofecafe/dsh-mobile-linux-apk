@@ -319,6 +319,19 @@
     mmap 权（"failed to map segment"——生产 rootfs 必须整体落在 app files/ 内，本来也是设计
     如此）；toybox `cp` 对无执行位源文件（libstdc++.so.6.0.30 为 0644）会 Permission denied，
     `cat >` 直灌绕过。
+99. **G2 引擎嫁接配方与 koffi 空壳目录坑（4Debian G2 实测）**：引擎树来源 = 仓内 `base/base-dsh.tar.xz`
+    （home/.dsh，纯 JS 零 .node）+ `base/base-usr-arm64.tar.xz`（usr/lib/node_modules 引擎本体 + usr/bin/dsh
+    → 相对符号链接 `../lib/node_modules/@deepseek-ai/dsh/lib/bin.js`，D-6 链可直拉）——两者是 **git-lfs
+    指针**（本机无 git-lfs 时用 `media.githubusercontent.com/media/<owner>/<repo>/main/<path>` 直拉 + sha256
+    对指针校验）。**坑主：koffi 的 `build/koffi/linux-arm64/` 目录存在但是空壳**（Termux 树只需 android 构建，
+    连字符命名目录是摆设）；koffi v3 的解析顺序 = `loadStatic`（`@koromix/koffi-<plat>-<arch>` 平台包）→
+    `loadDynamic`（`build/koffi/<plat>_<arch>/koffi.node` **下划线** triplet）。修法：`npm pack
+    @koromix/koffi-linux-arm64@<锁树内 koffi 版本>`（版本必须精确锁——3.2.1 vs 树内 3.1.5 混用有 ABI 风险），
+    双保险放置：`node_modules/@koromix/koffi-linux-arm64/linux_arm64/koffi.node` + `koffi/build/koffi/linux_arm64/`。
+    node-pty 树内已有 `prebuilds/linux-arm64/pty.node`（glibc 预编译在场，未成为 G2 阻塞）。启动 env 口径复刻
+    EngineManager.shellEnv()：`PATH/LD_LIBRARY_PATH/HOME/DSH_HOME/TMPDIR + SSL_CERT_FILE=CURL_CA_BUNDLE
+    =$R/etc/ssl/certs/ca-certificates.crt`（Debian 布局）。引擎基座版本 0.1.1-rc.2（老基座，G2 证明用；
+    overlay 升级至 0.1.5-rc.1 为 P2 接线项）。@napi-rs/canvas 缺失仅告警（pdfjs 可选依赖，不挡 boot）。
 
 
 
