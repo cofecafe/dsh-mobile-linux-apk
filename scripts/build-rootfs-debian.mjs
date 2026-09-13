@@ -123,6 +123,7 @@ const stageCmd = crossArch
   : `debootstrap --variant=${CFG.bootstrap.variant} --arch=${DEB_ARCH} ${CFG.suite} ${ROOTFS} ${MIRROR}`
 if (RUN) {
   rmSync(WORK, { recursive: true, force: true })
+  mkdirSync(OUT_DIR, { recursive: true })   // tar/指纹落盘目录（x86_64 首跑实锤：漏建即 ⑥ Cannot open）
   mkdirSync(ROOTFS, { recursive: true })
   mkdirSync(join(HOME_SEED, '.dsh'), { recursive: true })
 }
