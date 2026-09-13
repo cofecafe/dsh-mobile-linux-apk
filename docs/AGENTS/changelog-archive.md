@@ -1,3 +1,4 @@
+| 2026-09-13 | **4Debian P2 开工：引擎 overlay 升级 0.1.5-rc.1 一键固化 + 全量回归 ALL PASS** | 新脚本 `scripts/build-rootfs-g2.mjs`：把坑 98/99/100 的手工嫁接配方固化为一条命令——LFS 基座指针自动拉取（media 直链 + sha256 对指针校验）→ 312 包登记表覆盖（rootPackage 只换 lib/+README+package.json，保留旧包嵌套 node_modules，sha512 + npm 镜像链，缓存与 Termux 流程共享幂等）→ koffi 平台包双保险（版本锁基座树内 3.1.5）→ 版本/keepUnpublished/bin.js 断言 → 归档（剥 rootfs/dev + hard-deref）。产物 1003MB，引擎 **@0.1.5-rc.1 与现网 Termux 快照对齐**。**坑 101 三连**：① 设备侧脚本 PATH 若 guest usr/bin 在前，grep/head/cut 落到 glibc 动态二进制裸 exec 即 ENOENT → 脚本自身工具 /system/bin 优先（D-6 约束的脚本层体现）；② 引擎 0.1.5-rc.1 起 / 用 token 鉴权且是 **303 门票兑换流**（?token→Set-Cookie→带 cookie→200；node fetch 无 cookie jar 必须手动两步，curl 用 -c/-b jar；与壳侧 EngineAuth 同构）；③ 复跑残留引擎占端口 → 启动前 pkill 'bin.js web' 清扫。模拟器全量回归 ALL PASS（设备端兑换探针 + 宿主 forward 双 HTTP 200）。g2-emulator.sh 同步升级 | AI 开发助手 |
 # changelog-archive.md — 更新记录表历史归档
 
 > 主 AGENTS.md 只保留最近 3 条；完整历史在本文件（grep：版本号或关键词）。

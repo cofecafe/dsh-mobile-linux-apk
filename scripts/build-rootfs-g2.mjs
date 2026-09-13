@@ -128,6 +128,15 @@ rm -rf rootfs/home/.dsh
 tar -xJf ${rp(BASE_DSH)}
 cp -a home/.dsh rootfs/home/.dsh
 mkdir -p rootfs/tmp rootfs/root rootfs/var/tmp
+# ── Debian 口味端口适配（P2.5）：@dsh-android 插件把信任 authority 硬编码为 3080（Termux 端口），
+#    Debian flavor 引擎在 3081（EngineManager ENGINE_PORT，与 vivo 原应用共存不抢端口）——
+#    file-incoming 三条 exact 路由与 browser 插件的 Host 白名单必须同步，否则恒 403 空体。
+for f in rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/dsh-android-file-open/lib/route-auth.js \\
+         rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/dsh-android-file-open/lib/types/route-auth.d.ts \\
+         rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/dsh-android-browser/lib/index.js; do
+  [ -f "\$f" ] && sed -i "s/127\\.0\\.0\\.1:3080/127.0.0.1:3081/g; s/localhost:3080/localhost:3081/g" "\$f"
+done
+grep -r -l 3080 rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/ 2>/dev/null && { echo "残留 3080 硬编码"; exit 6; } || true
 E=rootfs/usr/lib/node_modules/@deepseek-ai/dsh
 NM=\$E/node_modules
 echo "[容器] ② 引擎 overlay（登记表驱动，保留旧包嵌套 node_modules）"
@@ -154,6 +163,9 @@ tar -xzf "${rp(join(CACHE, cacheFile(koffiPlat, koffiVer)))}" -C /tmp/kpkg
 mkdir -p "\$NM/@koromix/${koffiPlat.split('/')[1]}" "\$NM/koffi/build/koffi/linux_${KOFFI_ARCH}"
 cp -a "/tmp/kpkg/package/linux_${KOFFI_ARCH}" "\$NM/@koromix/${koffiPlat.split('/')[1]}/linux_${KOFFI_ARCH}"
 cp "/tmp/kpkg/package/linux_${KOFFI_ARCH}/koffi.node" "\$NM/koffi/build/koffi/linux_${KOFFI_ARCH}/"
+echo "[容器] ⑤¾ 引擎运行时补丁（对齐 Termux 生产件：F2-F7/G1/G2/N1，registry 登记表同一来源）"
+node /repo/scripts/patches/apply-patches.mjs rootfs --apply --scope engine
+
 echo "[容器] ⑤ D-6 启动器钩子（LD_PRELOAD exec 族拦截器，P2 原型）"
 mkdir -p rootfs/opt/d6
 cp ${rp(join(ROOT, `.deploy-tmp/tools/d6-exec-hook-${TARBALL_ABI}.so`))} rootfs/opt/d6/libd6exec.so
