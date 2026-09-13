@@ -332,6 +332,13 @@
     EngineManager.shellEnv()：`PATH/LD_LIBRARY_PATH/HOME/DSH_HOME/TMPDIR + SSL_CERT_FILE=CURL_CA_BUNDLE
     =$R/etc/ssl/certs/ca-certificates.crt`（Debian 布局）。引擎基座版本 0.1.1-rc.2（老基座，G2 证明用；
     overlay 升级至 0.1.5-rc.1 为 P2 接线项）。@napi-rs/canvas 缺失仅告警（pdfjs 可选依赖，不挡 boot）。
+100. **真机 G2 双坑（vivo PJZ110 实测，2026-09-13）**：① **EADDRINUSE @3080**——真机上装着的
+    dsh-mobile app 自身引擎常驻 `127.0.0.1:3080`（loopback 全局共享，与 app/shell 哪个 netns 无关），
+    shell 域复验必须换端口（`PORT=3081 scripts/g2-emulator.sh`）；顺带发现 **dsh-host-webserver 插件在
+    listen 失败时以「plugin tree failed to load」整体拒绝启动**（不是裸 listen 报错，定位要先看日志尾）。
+    ② **bash 全角括号吞变量名**：`$PORT）` 在 macOS 默认 locale 下全角 `）` 被当作变量名字符，
+    `set -u` 直接 `unbound variable` 炸——变量后紧跟全角字符必须 `${PORT}）` 花括号（g2-emulator.sh
+    两处实锤：启动横幅行炸中断过一轮复验、ALL PASS 行炸过收尾）。
 
 
 
