@@ -367,3 +367,24 @@
     ELF = [ldso,--argv0,argv0,bin,args…]；shebang = [ldso,--argv0,argv0,interp,script,args…]（kernel
     语义近似；shebang 单参数限制为原型缺口）。验收：A/B 对照（无钩子 5/5 FAIL ↔ 有钩子 5/5 PASS：execSync
     /spawnSync PATH/绝对路径/嵌套孙进程/shebang，git 2.39.5+rg 13 全链）。
+103. **seccomp 修复器三连自坑（patch-seccomp-syscalls.mjs 演进，2026-09-14）**：① v1 `svc→nop`
+    单改——x0（入参指针）残留为返回值→非负→glibc 视为成功（假注册 rseq→锁语义与内核脱钩→libuv
+    fd 事件瘫痪：进程活着但永不 socket()，卡 futex/statx 风暴）；② v2 `nr→1301` 伪造 ENOSYS 触发
+    nr——**白名单外 nr 本身就被 KILL**（run-as 域无过滤器侥幸通过，app 域死得更快）；③ v3 终版
+    `movz nr→movn x0,#37(-38) + svc→nop`：syscall 不发出+用户态伪造 ENOSYS 返回，glibc 走「老内核」
+    优雅禁用路径 ✓。另：arm64 指令字节**小端**写盘（`[0xa0,0x04,0x80,0x92]`，写反=SIGILL 132）；
+    JS 位运算结果须 `>>>0` 转 unsigned 才能 writeUInt32LE。工具坑：生成器里过滤不匹配项用 `continue`，
+    `return` 会掐死整个 walk；改 lstat 时别顺手删掉 isDirectory 递归分支。
+
+104. **app 域 seccomp 白名单连杀 glibc 三弹（4Debian M1 主战场，2026-09-14 全解）**：Android 14+
+    zygote 系 app 进程带 bionic seccomp 过滤器（run-as/shell 域没有——手动链全通是假阴性温床）。
+    ① **参数敏感杀**：`set_robust_list(99)`/`rseq(293)` 真 args 调用即 SIGSYS（空参探针不触发——
+    探针矩阵必须真参）；② **nr 级杀**：`clone3(435)`、**`faccessat2(439)`**（glibc 2.36 access() 内联
+    svc，PLT 钩子拦不到内联 svc——只有无 libc wrapper 的 nr（io_uring 425-427）才能用 d6 钩子
+    syscall() 拦截返回 ENOSYS；有 wrapper 的必须二进制补丁 glibc）。439 是最深一枚：引擎 token 行
+    已打印后 webserver 启动链权限检查触发，全进程 SIGSYS 群灭（strace `si_syscall=439` 实锤）。
+    ③ **定位工具链**：ftrace raw_syscalls（KILL/ERRNO 的 syscall **不出现**在 enter 里——enter 在
+    seccomp 之后，缺席即嫌疑）；root strace 全程盯梢（出生即 attach）才能看到 si_syscall 真值；
+    worker 线程会改名（comm 过滤漏看）必须 -f 全线程。终态：libc+ld.so 双库补丁（99/293/435/439
+    →伪造 ENOSYS）+ d6 钩子拦 syscall(425/426/427/435)，管线固化 `build-rootfs-g2.mjs` ⑤½ 步
+    （`--files=` 精确模式+0 命中门禁），模拟器 app 域引擎全通（token+3081 LISTEN+401/303 鉴权）。

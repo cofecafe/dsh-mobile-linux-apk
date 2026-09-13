@@ -158,6 +158,9 @@ echo "[容器] ⑤ D-6 启动器钩子（LD_PRELOAD exec 族拦截器，P2 原�
 mkdir -p rootfs/opt/d6
 cp ${rp(join(ROOT, `.deploy-tmp/tools/d6-exec-hook-${TARBALL_ABI}.so`))} rootfs/opt/d6/libd6exec.so
 test -f rootfs/opt/d6/libd6exec.so || { echo "d6 钩子缺失"; exit 5; }
+echo "[容器] ⑤½ seccomp 补丁（坑104：app 域白名单外 nr 伪造 ENOSYS，只动 libc+ld.so）"
+node /repo/scripts/patch-seccomp-syscalls.mjs rootfs --files=usr/lib/aarch64-linux-gnu/libc.so.6,usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+test -f rootfs/usr/lib/aarch64-linux-gnu/libc.so.6 || { echo "libc 缺失"; exit 5; }
 echo "[容器] ⑥ 断言 + 归档"
 PJ_VER=\$(python3 -c "import json; print(json.load(open('\$E/package.json'))['version'])")
 [ "\$PJ_VER" = "${OVERLAY.engineVersion}" ] || { echo "根包版本 \$PJ_VER != ${OVERLAY.engineVersion}"; exit 5; }
@@ -176,3 +179,32 @@ execFileSync('bash', ['-c',
 ], { stdio: 'inherit' })
 log(`完成: ${OUT}（${(statSync(OUT).size / 1048576).toFixed(0)}MB）`)
 log(`引擎 @ ${OVERLAY.engineVersion} · koffi ${koffiVer} 平台包已补`)
+
+// ── 4. --apk-asset：产出 debian flavor 的 APK 内嵌资产 ─────────────
+// 布局契约（EngineManager 布局复用）：rootfs/ 改名 usr/ + home/ 原样 → debian-rootfs.tar.xz
+// （顶层 usr/+home/，解压事务/指纹机制零改动）；同产 debian-rootfs.sha256（不透明指纹串）。
+if (process.argv.includes('--apk-asset')) {
+  const ASSET_DIR = join(ROOT, 'app/src/debian/assets')
+  const sh2 = `#!/bin/bash
+set -euo pipefail
+cd /tmp && rm -rf apkasset && mkdir apkasset && cd apkasset
+echo "[apk-asset] 变换布局 rootfs/ → usr/"
+tar -xf ${rp(OUT)}
+mv rootfs usr
+echo "[apk-asset] xz 压缩（-T0 并行，数分钟）"
+tar -c --sort=name usr home | xz -T0 -6 > /repo/${(join(ASSET_DIR, 'debian-rootfs.tar.xz').slice(ROOT.length + 1))}
+echo "[apk-asset] 完成"
+`
+  const { mkdirSync: md } = await import('node:fs')
+  md(ASSET_DIR, { recursive: true })
+  const sh2Path = join(CACHE, `g2-apk-asset-${TARBALL_ABI}.sh`)
+  writeFileSync(sh2Path, sh2)
+  execFileSync('bash', ['-c',
+    `docker run --rm --platform linux/${ABI === 'x86_64' ? 'amd64' : ABI} -v ${ROOT}:/repo node:22-bookworm bash ${rp(sh2Path)}`,
+  ], { stdio: 'inherit' })
+  const xzPath = join(ASSET_DIR, 'debian-rootfs.tar.xz')
+  const { createHash: ch } = await import('node:crypto')
+  const digest = ch('sha256').update(readFileSync(xzPath)).digest('hex')
+  writeFileSync(join(ASSET_DIR, 'debian-rootfs.sha256'), digest + '\n')
+  log(`APK 资产: ${xzPath}（${(statSync(xzPath).size / 1048576).toFixed(0)}MB）sha256=${digest.slice(0, 12)}…`)
+}

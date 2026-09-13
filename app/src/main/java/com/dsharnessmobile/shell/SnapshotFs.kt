@@ -28,11 +28,21 @@ internal object SnapshotFs {
     if (!Files.exists(nioPath, NOFOLLOW_LINKS)) return
     val attrs = Files.readAttributes(nioPath, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
     if (attrs.isDirectory) {
-      Files.list(nioPath).use { children ->
-        children.forEach { deletePath(it.toFile()) }
+      try {
+        Files.list(nioPath).use { children ->
+          children.forEach { deletePath(it.toFile()) }
+        }
+      } catch (_: java.nio.file.NoSuchFileException) {
+        // 并发回收竞态（4Debian 1GB 树实锤：EngineService 恢复线与启动流程线同时 deletePath
+        // 同一 stage，后到者在迭代中条目已消失）——目录没了 = 对手已删完，视为成功。
+        return
       }
     }
-    Files.deleteIfExists(nioPath)
+    try {
+      Files.deleteIfExists(nioPath)
+    } catch (_: java.nio.file.NoSuchFileException) {
+      // 同上：消失即完成
+    }
   }
 
   /** Rename within one filesystem; falls back to a plain move when ATOMIC_MOVE is unsupported. */

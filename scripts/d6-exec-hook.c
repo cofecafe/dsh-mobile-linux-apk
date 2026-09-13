@@ -77,6 +77,31 @@ static char *d6_shebang_interp(const unsigned char *buf, ssize_t n)
 }
 
 /* 判定 ELF 是否 guest glibc（PT_INTERP 含 ld-linux）。1=是 0=否 -1=读失败 */
+/* ── syscall() 通用包装拦截（坑 104）─────────────────────────────────
+ * Android 14 app 域 seccomp 对 io_uring_setup(425) 等 nr 级击杀；libuv 等经
+ * libc 的 syscall(SYS_io_uring_setup, …) 动态调用——nr 无静态立即数，字节补丁
+ * 无从下手。这里在 PLT 层拦 syscall()：命中高危 nr → 直接 -ENOSYS（调用方
+ * 都有 ENOSYS 回退路径），不落入内核。435(clone3) 同理保险。
+ */
+long syscall(long nr, ...)
+{
+  static long (*real_syscall)(long, ...);
+  long a[6] = {0, 0, 0, 0, 0, 0};
+  va_list ap;
+  va_start(ap, nr);
+  for (int i = 0; i < 6; i++) a[i] = va_arg(ap, long);
+  va_end(ap);
+  if (nr == 425 || nr == 426 || nr == 427 /* io_uring* */ || nr == 435 /* clone3 */) {
+    errno = ENOSYS;
+    return -1;
+  }
+  if (!real_syscall) {
+    real_syscall = (long (*)(long, ...))dlsym(RTLD_NEXT, "syscall");
+    if (!real_syscall) return -1;
+  }
+  return real_syscall(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+}
+
 static int d6_is_glibc_elf(const char *abs)
 {
   unsigned char buf[1024];
@@ -363,6 +388,16 @@ static int d6_spawn_impl(int (*realfn)(pid_t *, const char *, const posix_spawn_
   }
   return realfn(pid, file, fa, attr, argv, envp);
 }
+/* 坑104 诊断：constructor 落盘标记（验证 LD_PRELOAD 是否真的预载进 app 域子进程） */
+__attribute__((constructor))
+static void d6_loaded_marker(void)
+{
+  const char *p = getenv("D6_LOADED_MARK");
+  if (!p) return;
+  int fd = open(p, O_WRONLY | O_CREAT | O_APPEND, 0600);
+  if (fd >= 0) { ssize_t r = write(fd, "H", 1); (void)r; close(fd); }
+}
+
 int posix_spawn(pid_t *pid, const char *file, const posix_spawn_file_actions_t *fa,
                 const posix_spawnattr_t *attr, char *const argv[], char *const envp[])
 {

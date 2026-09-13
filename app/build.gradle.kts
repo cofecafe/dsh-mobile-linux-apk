@@ -29,9 +29,40 @@ android {
     // （DSH_APP_VERSION，见 EngineManager.engineEnv）全部读这里，禁止任何地方再硬编码版本字面量。
     versionName = "0.14.0-preview" + snapshotSuffix
     buildConfigField("String", "TERMUX_VERSION", "\"0.118.3\"")
+    // 4Debian 变体（M1 预览）：app 名走 resValue（debian flavor 覆盖为 DSH Debian），原 strings.xml 的
+    // app_name 移到这里（flavor resValue 不能与 res 目录同名资源共存）。
+    resValue("string", "app_name", "DeepCode")
     // 0.14.0-preview：虚拟屏 P0 建屏矩阵走仪器测试入口（app UID 下运行 = P0-6 要测的调用者身份），
     // 不新增任何产品面（Activity/Bridge/Manifest 均不动）。见 .deploy-tmp/iter-0140/vdisplay-p0.md §8.8。
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+  }
+
+  // 4Debian 双运行时变体（docs/design-4debian.md D-0/D-3；坑 98/99/100/101/102 的实证链）：
+  //   termux = Termux 快照（现状，全设备保底，资产 snapshot.tar.xz）
+  //   debian = Debian rootfs + D-6 ld.so 直启链 + LD_PRELOAD exec 拦截器（资产 debian-rootfs.tar.xz）
+  // 布局复用：Debian rootfs 整树改挂 files/usr（usr/usr/bin/node…），解压/事务/指纹机制零改动；
+  // 启动链按 BuildConfig.DEBIAN_RUNTIME 分支（EngineManager）。flavor 不能叫 "main"（与内置
+  // sourceSet 同名 → generateSources 任务键冲突，AGP 实锤）。
+  flavorDimensions += "runtime"
+  productFlavors {
+    create("termux") {
+      dimension = "runtime"
+      buildConfigField("boolean", "DEBIAN_RUNTIME", "false")
+    }
+    create("debian") {
+      dimension = "runtime"
+      // 不能用 applicationIdSuffix "4d"（段首数字非法）——直接覆写完整 id
+      applicationId = "com.dsharnessmobile.shell4d"
+      // D-6 前置（坑 98/103）：untrusted_app（targetSdk 29+）域对 app-data ELF 的 exec 恒 EACCES
+      // （Android 10 起 SELinux 化，模拟器与 vivo 16 双实锤；linker64 fallback 只救 bionic ELF，
+      // 对 glibc ld.so 报 "Could not find a PHDR"）。targetSdk<=28 落 untrusted_app_27 域 =
+      // Termux 存活至今的同一豁免 → D-6 直启链（exec glibc ld.so）合法。预览版代价：
+      // 继承旧存储语义/无 scoped storage，正式版需换 nativeLibraryDir 静态蹦床或 memfd 路线。
+      targetSdk = 28
+      versionNameSuffix = "-d1"
+      resValue("string", "app_name", "DSH Debian (Preview)")
+      buildConfigField("boolean", "DEBIAN_RUNTIME", "true")
+    }
   }
 
   buildFeatures {
@@ -90,15 +121,23 @@ android {
 }
 
 // The runtime snapshot comes from GitHub Releases (large files are not committed); the build fails with fetch guidance when it is missing.
+// 运行时资产守卫（4Debian 起 flavor 化：任务名 merge<Flavor><BuildType>Assets）。
+// main 校验 Termux 快照；debian 校验 Debian rootfs（由 scripts/build-rootfs-g2.mjs --apk-asset 产出，
+// 大文件不入库，.gitignore 已排除）。
 tasks.whenTaskAdded {
-  if (name == "mergeDebugAssets" || name == "mergeReleaseAssets") {
+  if (name.endsWith("Assets") && name.startsWith("merge")) {
+    val flavor = name.removePrefix("merge").removeSuffix("Assets")
+      .removeSuffix("Debug").removeSuffix("Release")
+    val (asset, hint) = if (flavor == "Debian") {
+      "src/debian/assets/debian-rootfs.tar.xz" to
+        "node scripts/build-rootfs-g2.mjs arm64 --apk-asset 生成（4Debian 预览载荷，见 docs/design-4debian.md）"
+    } else {
+      "src/main/assets/snapshot.tar.xz" to
+        "从 GitHub Releases 下载 snapshot-x86_64.tar.xz 后放到 app/src/main/assets/snapshot.tar.xz（见 README.md）"
+    }
     doFirst {
-      val snap = file("src/main/assets/snapshot.tar.xz")
-      if (!snap.exists()) {
-        throw GradleException(
-          "缺少运行时快照 assets/snapshot.tar.xz —— " +
-            "从 GitHub Releases 下载 snapshot-x86_64.tar.xz 后放到 app/src/main/assets/snapshot.tar.xz（见 README.md）",
-        )
+      if (!file(asset).exists()) {
+        throw GradleException("缺少运行时资产 $asset —— $hint")
       }
     }
   }

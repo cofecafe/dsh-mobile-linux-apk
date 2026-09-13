@@ -183,6 +183,9 @@ object LogCollector {
    * 0.13.8 #174：写盘移交 logExecutor（调用方立即返回）；时间戳在入队时刻取，保序 FIFO。
    */
   fun log(tag: String, message: String) {
+    // 4Debian 调试（坑 104）：双写 logcat——day-file 面在 targetSdk28 预览（无外部存储授权）
+    // 下可能整目录缺失被吞，引擎启动失败的唯一证据会消失。
+    Log.i(tag, message)
     val ctx = appContext ?: return
     val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
     logExecutor.execute {

@@ -45,8 +45,8 @@ object EngineAuth {
   private const val TAG = "dsh-engine-auth"
   private const val PREFS = "dsh_engine_auth"
   private const val KEY_COOKIE = "cookie"
-  const val AUTHORITY = "127.0.0.1:3080"
-  const val BASE_URL = "http://$AUTHORITY"
+  val AUTHORITY: String get() = "127.0.0.1:" + EngineProbe.ENGINE_PORT // 4Debian：cookie 名派生自 authority，必须与引擎端口同源
+  val BASE_URL: String get() = "http://$AUTHORITY"
   private const val COOKIE_NAME_PREFIX = "dsh-auth-"
   private const val TOKEN_LINE = "dsh web: "
   internal val TOKEN_RE = Regex("""dsh web: \S*/\?token=([A-Za-z0-9_\-]{40,})""")

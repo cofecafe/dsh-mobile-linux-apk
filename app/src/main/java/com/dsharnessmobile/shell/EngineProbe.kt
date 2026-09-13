@@ -23,10 +23,12 @@ import org.json.JSONObject
  */
 object EngineProbe {
 
-  const val ENGINE_URL = "http://127.0.0.1:3080"
+  // 4Debian 双 App 并存（坑 100 实锤）：loopback 端口全机共享，原版 DeepCode 常驻 3080；
+  // debian 变体换 3081，避免 EADDRINUSE（引擎把 bind 失败包装成插件树加载失败，静默死）。
+  val ENGINE_PORT: Int = if (BuildConfig.DEBIAN_RUNTIME) 3081 else 3080
+  val ENGINE_URL: String = "http://127.0.0.1:" + ENGINE_PORT
 
   private const val ENGINE_HOST = "127.0.0.1"
-  private const val ENGINE_PORT = 3080
 
   /**
    * One-shot reachability probe. Safe on any thread (never the main thread).

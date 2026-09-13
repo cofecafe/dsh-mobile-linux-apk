@@ -57,7 +57,9 @@ class UpdateManager(private val context: Context) {
         )
         tmp.delete()
         val newUsr = File(stage, "usr")
-        if (!File(newUsr, "bin/node").exists()) throw IllegalStateException("新快照缺少 node")
+        // 4Debian：探针路径与 EngineManager.nodeRelPath 同口径（usr/usr/bin/node）
+        if (!File(newUsr, if (BuildConfig.DEBIAN_RUNTIME) "usr/bin/node" else "bin/node").exists())
+          throw IllegalStateException("新快照缺少 node")
 
         onStatus("切换运行时…")
         val usr = File(context.filesDir, "usr")

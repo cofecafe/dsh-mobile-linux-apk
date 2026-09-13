@@ -31,7 +31,8 @@ class ConsoleSession(private val context: Context) {
   /** Start bash; on failure report the reason via listener.onStatus and return false. */
   fun start(listener: Listener): Boolean {
     val engineManager = EngineManager(context, EngineManager.ensurePickToken())
-    val bash = File(engineManager.usrDir, "bin/bash")
+    // 4Debian：guest bash 是 glibc 动态 ELF——直接 exec 会 ENOENT，经 D-6 链（ld.so + --argv0）拉起
+    val bash = File(engineManager.usrDir, engineManager.bashRelPath)
     if (!bash.exists()) {
       listener.onStatus("快照缺失（usr/bin/bash 不存在），无法打开控制台")
       return false
@@ -51,7 +52,7 @@ class ConsoleSession(private val context: Context) {
           p.environment()["PS1"] = "dsh:\\w$ "
           p.redirectErrorStream(true)
         }
-      val argv = listOf(bash.absolutePath, "-i")
+      val argv = engineManager.d6Wrap(bash, listOf("-i"))
       // Same fallback as the engine: Android 15/16 and some OEM systems (Honor/Huawei, measured)
       // forbid the app domain from exec'ing an app-data ELF directly (EACCES Permission denied);
       // loading via /system/bin/linker64 matches the Android system-lib mechanism and always works.

@@ -128,10 +128,7 @@ object UndoGate {
     args: List<String>,
   ): List<String> {
     return try {
-      val cmd = listOf(
-        engine.usrDir.absolutePath + "/bin/node",
-        cli.absolutePath,
-      ) + args
+      val cmd = engine.d6Wrap(File(engine.usrDir, engine.nodeRelPath), listOf(cli.absolutePath) + args)
       // #118 根因2（2026-09）：直接 exec app-data ELF 在 Android 15+ 恒 Permission denied
       // （error=13），auto-undo 因此从未真正执行。与 EngineManager.startWithArgs 同款：
       // 捕获 Permission denied 后降级经 /system/bin/linker64 加载（系统库加载机制对

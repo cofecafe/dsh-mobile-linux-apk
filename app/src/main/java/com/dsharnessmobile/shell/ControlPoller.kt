@@ -36,7 +36,7 @@ class ControlPoller(private val service: DeviceControlService) {
 
   companion object {
     private const val TAG = "dsh-a11y"
-    private const val BASE = "http://127.0.0.1:3080"
+    private val BASE: String get() = EngineProbe.ENGINE_URL // 4Debian：端口随 flavor（3080/3081）
     private const val LONG_POLL_MS = 5000
     private const val CONNECT_TIMEOUT_MS = 2000
     private const val READ_TIMEOUT_MS = 9000
