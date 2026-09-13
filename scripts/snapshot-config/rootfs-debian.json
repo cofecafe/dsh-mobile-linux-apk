@@ -1,0 +1,52 @@
+{
+  "$comment": "4Debian P1 配置（build-rootfs-debian.mjs 消费；清单/编排分离——雷点 10 模式）。suite=Debian 基线；mirrors 逐级回退（清华 → 官方）；targets=apt 安装清单；nodejs.strategy=nodesource 时走 NodeSource 源（bookworm 自带 nodejs=18.19 低于引擎 nodejs-lts 基线，Q1 P1 定版）；hostProot=宿主侧引导器（Termux bionic 包，提取到 files/proot，不入 rootfs）。布局契约 rootfs/+home/ 为 D-4 提案（design-4debian.md §4.2），P2 定案。增删清单只改本文件。",
+  "suite": "bookworm",
+  "mirrors": [
+    "https://mirrors.tuna.tsinghua.edu.cn/debian",
+    "https://deb.debian.org/debian"
+  ],
+  "bootstrap": {
+    "variant": "minbase",
+    "components": ["main"]
+  },
+  "targets": [
+    "bash", "coreutils", "findutils", "grep", "sed", "ripgrep", "tar", "xz-utils",
+    "zstd", "diffutils", "procps", "curl", "wget", "jq", "unzip", "nano", "vim-tiny",
+    "git", "ca-certificates", "openssl", "python3", "python3-pip", "perl", "ruby",
+    "pkg-config"
+  ],
+  "nodejs": {
+    "strategy": "nodesource",
+    "major": "22",
+    "$comment": "Q1 待定：nodesource 22.x vs bookworm nodejs 18.19。strategy=distro 时跳过 NodeSource 步骤。"
+  },
+  "buildTools": {
+    "include": false,
+    "packages": ["build-essential"],
+    "$comment": "对齐现快照瘦身哲学（slim.json 剥编译链）；glibc 预编译二进制是本方案主收益，默认不带编译链。P1 如遇需现场编译的依赖再开。"
+  },
+  "strip": {
+    "paths": [
+      "/usr/share/doc", "/usr/share/man", "/usr/share/info", "/usr/share/locale",
+      "/usr/share/groff", "/usr/share/zoneinfo/left*",
+      "/var/lib/apt/lists", "/var/cache/apt", "/var/log"
+    ],
+    "keep": {
+      "locales": ["C.UTF-8"],
+      "$comment": "glibc 内建 C.UTF-8，无需 locale archive；剥离 /usr/share/locale 不影响。"
+    },
+    "dpkg": {
+      "keepStatusDb": true,
+      "$comment": "Q6：保留 /var/lib/dpkg/status（后续在线 apt 与依赖查询需要）；lists 剥离。P1 复核体积收益。"
+    }
+  },
+  "hostProot": {
+    "termuxPackage": "proot",
+    "$comment": "宿主侧引导器（bionic），来自 Termux 仓库 .deb，提取到 files/proot/bin；P2 壳侧解压与 EngineManager 启动链接线。"
+  },
+  "archive": {
+    "layout": ["rootfs/", "home/.dsh", "home/.gitconfig"],
+    "numericOwner": true,
+    "$comment": "D-4 提案布局；home seed 与 Termux 快照同源（seed-settings.yaml 模式复用）。"
+  }
+}
