@@ -279,6 +279,12 @@
     铁律：per-ABI 的每条拒绝路径都必须把该 ABI 记入 `$rejectedAbis`，尾部必须打印「已产出 / 被拒 ABI」汇总，
     并在「被拒非空」或「产出为空」时 `exit 1`。防线 = `scripts/check-build-chain-abort.mjs`（静态逐处断言 +
     `--self-test` 抽真实尾部块用合成状态驱动：被拒→非 0 / 全产出→0 / 零产出→非 0 / 去掉守卫→0 承重反证）。
+95. **macOS（OrbStack/Docker Desktop）卷挂载上不能 debootstrap：mknod 被拒 → 误判 noexec/nodev（4Debian P1 实锤）**：
+    debootstrap 开工前会在目标目录 `mknod` 一个测试设备节点，virtiofs / gRPC-FUSE 共享卷不允许 mknod（EPERM），
+    debootstrap 即报 `Cannot install into target ... mounted with noexec or nodev` 拒绝——与真实 mount 标志无关，
+    `--privileged` 也救不了。修法（`build-rootfs-debian.mjs` 已内建）：构建工作区放容器内部文件系统
+    （docker 转发自动注入 `DSH_ROOTFS_WORK=/tmp/rootfs-work`），只把最终 tar.xz / sha256 / 指纹写回挂载卷
+    （单文件顺序写，virtiofs 开销可忽略）；顺带万级小文件的解包 I/O 全留在容器 overlayfs 上，比卷挂载快一个量级。
 
 
 

@@ -37,7 +37,9 @@ if (!['arm64', 'x86_64'].includes(ABI)) {
 }
 const DEB_ARCH = ABI === 'arm64' ? 'arm64' : 'amd64'
 const OUT_DIR = join(ROOT, '.deploy-tmp', 'rootfs-debian', ABI)
-const WORK = join(OUT_DIR, 'work')          // 构建工作区
+// 构建工作区：默认产物目录下；macOS Docker 模式经 DSH_ROOTFS_WORK 指到容器内部文件系统
+// （坑 95：macOS 卷挂载不允许 mknod，debootstrap 误判 nodev 拒装——容器内构建、只回写产物）。
+const WORK = process.env.DSH_ROOTFS_WORK ?? join(OUT_DIR, 'work')
 const ROOTFS = join(WORK, 'rootfs')         // Debian 树（D-4 布局）
 const HOME_SEED = join(WORK, 'home')        // home/.dsh + home/.gitconfig
 const TARBALL = join(OUT_DIR, 'snapshot.tar.xz')
@@ -94,6 +96,7 @@ if (RUN && process.env.DSH_ROOTFS_IN_CONTAINER !== '1') {
     const inner = `apt-get update && apt-get install -y --no-install-recommends debootstrap && node scripts/build-rootfs-debian.mjs ${ABI} --run`
     const cmd = 'docker run --rm --platform ' + platform +
       ' -v ' + ROOT + ':' + ROOT + ' -w ' + ROOT + ' -e DSH_ROOTFS_IN_CONTAINER=1' +
+      ' -e DSH_ROOTFS_WORK=/tmp/rootfs-work' +
       (process.env.SOURCE_DATE_EPOCH ? ' -e SOURCE_DATE_EPOCH=' + process.env.SOURCE_DATE_EPOCH : '') +
       ' node:22-bookworm bash -lc ' + JSON.stringify(inner)
     log0(`macOS → Docker 平台匹配容器内执行（${platform}${platform === 'linux/amd64' ? '，Apple Silicon 上走 Rosetta/qemu 仿真' : ''}）`)

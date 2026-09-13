@@ -127,7 +127,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 - **R-4【中】DNS/网络**：resolv.conf 生成时机（每次引擎启动前）、VPN / 私有 DNS 方差（P2 实测）。
 - **R-5【中】厂商方差**：SELinux 域收紧机型、存储挂载差异影响 `-b` 绑定表（MIUI 兼容前科；按机型回归）。
 - **R-6【中】GPL 合规面扩大**：Debian 包大量 GPL/AGPL；三形态在场规则（docs/AGENTS/gpl-compliance.md）需扩展到 dpkg copyright 抽取链路。
-- **R-7【低】构建环境**：宿主三选一——① Linux 原生（跨 arch 走 qemu-user-static/binfmt）；② Windows WSL2（沿用 build-snapshot-013 模式）；③ **macOS：Docker 平台匹配容器**（`node:22-bookworm --platform` 按目标 ABI，容器内原生 debootstrap、无需 qemu；**当前开发机即此路径**，骨架已内建自动转入，`DSH_ROOTFS_NO_DOCKER=1` 或缺 Docker 即拒）。macOS 卷挂载 I/O 偏慢，如成瓶颈把 `.deploy-tmp` 迁容器卷。GHA 免费 arm64 runner 仅 public 仓库——本仓镜像面可承担，协调仓私有侧 qemu 兜底。
+- **R-7【低→已实锤一次】构建环境**：宿主三选一——① Linux 原生（跨 arch 走 qemu-user-static/binfmt）；② Windows WSL2（沿用 build-snapshot-013 模式）；③ **macOS：Docker 平台匹配容器**（`node:22-bookworm --platform` 按目标 ABI，容器内原生 debootstrap、无需 qemu；**当前开发机即此路径**，骨架已内建自动转入，`DSH_ROOTFS_NO_DOCKER=1` 或缺 Docker 即拒）。**P1 实锤（坑 95）**：macOS 卷挂载不允许 mknod → debootstrap 误判 nodev 拒装；修法 = 构建工作区放容器内部（`DSH_ROOTFS_WORK=/tmp/rootfs-work` 自动注入），只回写最终产物，万级小文件 I/O 留在 overlayfs。GHA 免费 arm64 runner 仅 public 仓库——本仓镜像面可承担，协调仓私有侧 qemu 兜底。
 - **R-8【利好】16KB 页**：GNU aarch64 工具链默认 64KB 段对齐，glibc rootfs 天然兼容 16KB 页设备（Termux 包需专门迁移——本仓 docs/design.md §ABI 已记）。
 
 ## 8. 分支管理与纪律
