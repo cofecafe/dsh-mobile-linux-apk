@@ -111,7 +111,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 |---|---|---|
 | **P0**（本提交） | ADR 文档 + rootfs 构建骨架与配置（dry-run 默认）+ 分支建立 | 骨架 dry-run 可跑 |
 | **P1** rootfs PoC | debootstrap minbase → 装包 → 瘦身 → 归档；引导链实测 | **完成（G1✅G2✅G3-lite✅双环境 + G4 核心证据）**：构建链双 ABI 绿；G1 = 真机/模拟器/shell+app 域 D-6 链全绿（R-1 反转，坑 98）；**G2 = 双环境**——模拟器（Android 14）+ **vivo 真机（Android 16，`PORT=3081` 避开 app 自身引擎的 3080，坑 100）**均以 D-6 链跑起 `dsh web`，设备端 fetch + adb forward 双 HTTP 200；G3-lite 双 ABI（esbuild/sharp 直装即用）；proot 降为增强（vivo EACCES / 模拟器 ENOENT）。余项：G3 完整版、引擎 overlay 升级至 0.1.5-rc.1 接线（P2） |
-| **P2** 壳侧集成 | 解压契约、启动链、DNS、绑定表、控制台、探针 | MuMu 模拟器 V1-V8 矩阵全绿 |
+| **P2** 壳侧集成 | 解压契约、启动链、DNS、绑定表、控制台、探针 | **进行中**：**引擎 overlay 升级 0.1.5-rc.1 接线完成（2026-09-13）**——`scripts/build-rootfs-g2.mjs` 一键固化 G2 载荷（LFS 基座自动拉取 + 312 包登记表覆盖 + rootPackage 换 lib + koffi 平台包双保险 + 版本/keepUnpublished 断言 + 归档），模拟器全量回归 ALL PASS（token 303 兑换鉴权流探针，坑 101）；**与现网 Termux 快照引擎版本对齐**。待：D-6 启动器原型（fork+exec 全包装 + PATH shim）、G3 完整版、解压契约、DNS、绑定表、探针门控 |
 | **P3** 更新双轨 | manifest channel 扩展、探针门控、灰度下发 | 模拟器上双通道切换/回退无残留 |
 | **P4** 性能门禁 | 对比 Termux 基线：引擎冷启、pnpm install（中型仓）、rg 大仓搜索、git status（大仓） | 阈值 **≤3×**；超限 → D-6 备胎评估或终止决策（回滚成本 = 弃分支，main 零污染） |
 | **P5** 合规与门禁 | GPL 三形态扩展、elf-check、third-party、secrets 适配 | 全部既有门禁在 rootfs 口径下绿 |

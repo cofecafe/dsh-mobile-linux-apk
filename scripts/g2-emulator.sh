@@ -50,11 +50,30 @@ case "$1" in
     ;;
   probe)
     # 设备端自检：node fetch 127.0.0.1:@PORT@（不经 adb forward 的原位证据）
+    # 0.1.5-rc.1 起引擎对 / 启用 token 鉴权（裸 / 401）——token 从 engine.log 的 dsh web 行提取
+    # 坑 101（D-6 约束的脚本层体现）：脚本自身工具（grep/head/cut）必须用 /system/bin 的 toybox——
+    # PATH 若 guest usr/bin 在前，落到 glibc 动态二进制上裸 exec 直接 ENOENT
+    PATH=/system/bin:$PATH
+    TOK=$(grep -o "token=[^ ]*" $D/engine.log 2>/dev/null | head -1 | cut -d= -f2)
+    G2_TOKEN="$TOK"; export G2_TOKEN
     exec $L/ld-linux-aarch64.so.1 $R/usr/bin/node -e '
-      fetch("http://127.0.0.1:@PORT@/").then(r => {
-        console.log("HTTP", r.status, r.headers.get("content-type") || "");
-        process.exit(r.status === 200 ? 0 : 1);
-      }).catch(e => { console.log("FETCH_FAIL", e.cause?.code || e.message); process.exit(1); })'
+      // 0.1.5-rc.1 鉴权 = 303 门票兑换：?token= → Set-Cookie → 带 cookie 再访 / → 200
+      // （node fetch 无 cookie jar，必须手动两步；与壳侧 EngineAuth Cookie 流同构）
+      const tok = process.env.G2_TOKEN
+      const base = "http://127.0.0.1:@PORT@"
+      const step = tok ? fetch(`${base}/?token=${tok}`, { redirect: "manual" })
+                       : Promise.resolve(null)
+      const done = (code, ct) => {
+        console.log("HTTP", code, ct || "");
+        process.exit(code === 200 ? 0 : 1);
+      }
+      if (!tok) { fetch(base + "/").then(r => done(r.status, r.headers.get("content-type"))).catch(e => { console.log("FETCH_FAIL", e.cause?.code || e.message); process.exit(1) }); }
+      else step.then(r => {
+        const cookie = r.headers.get("set-cookie")
+        if (!cookie) { console.log("NO_COOKIE", r.status); process.exit(1) }
+        return fetch(base + "/", { headers: { cookie: cookie.split(";")[0] } })
+      }).then(r => r && done(r.status, r.headers.get("content-type")))
+        .catch(e => { console.log("FETCH_FAIL", e.cause?.code || e.message); process.exit(1) })'
     ;;
 esac
 echo "usage: g2run.sh start|probe" >&2; exit 64
@@ -64,6 +83,8 @@ $ADB -s $SER push "$STAGE/g2run.sh" "$D/g2run.sh" >/dev/null
 $ADB -s $SER shell "chmod +x $D/g2run.sh"
 
 echo "── 2/4 D-6 链启动引擎（后台，端口 ${PORT}）"
+# 清扫上一轮残留引擎（EngineManager 同款特征匹配：bin.js web 是唯一形态）
+$ADB -s $SER shell "pkill -f 'bin.js web' 2>/dev/null; sleep 1" || true
 $ADB -s $SER shell "sh $D/g2run.sh start > $D/engine.log 2>&1" &
 ENGPID=$!
 
@@ -76,10 +97,18 @@ done
 [ "$OK" = 1 ] || { echo "✗ 引擎未在 90s 内就绪；日志尾部："; $ADB -s $SER shell "tail -12 $D/engine.log"; kill $ENGPID 2>/dev/null; exit 3; }
 $ADB -s $SER shell "grep 'dsh web' $D/engine.log"
 
-echo "── 4/4 双重验收：设备端 fetch + adb forward 宿主 curl"
+echo "── 4/4 双重验收：设备端 fetch + adb forward 宿主 curl（带 token）"
 $ADB -s $SER shell "sh $D/g2run.sh probe"
 $ADB -s $SER forward tcp:$FWD tcp:$PORT >/dev/null
-curl -s -o /dev/null -w "宿主经 forward: HTTP %{http_code}\n" http://127.0.0.1:$FWD/
-curl -s http://127.0.0.1:$FWD/ | head -c 120; echo
+TOK=$($ADB -s $SER shell "grep -o 'token=[^ ]*' $D/engine.log 2>/dev/null | head -1" | tr -d '\r')
+CJ=$(mktemp); trap 'rm -rf "$STAGE" "$CJ"' EXIT
+if [ -n "$TOK" ]; then
+  curl -s -c "$CJ" -o /dev/null "http://127.0.0.1:$FWD/?$TOK"
+  curl -s -b "$CJ" -o /dev/null -w "宿主经 forward: HTTP %{http_code}\n" "http://127.0.0.1:$FWD/"
+  curl -s -b "$CJ" "http://127.0.0.1:$FWD/" | head -c 120; echo
+else
+  curl -s -o /dev/null -w "宿主经 forward: HTTP %{http_code}\n" "http://127.0.0.1:$FWD/"
+  curl -s "http://127.0.0.1:$FWD/" | head -c 120; echo
+fi
 
 echo "── ALL PASS（G2 · $SER · Android D-6 直启链 · dsh web @${PORT}）"

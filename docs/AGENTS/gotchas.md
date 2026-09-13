@@ -339,6 +339,16 @@
     ② **bash 全角括号吞变量名**：`$PORT）` 在 macOS 默认 locale 下全角 `）` 被当作变量名字符，
     `set -u` 直接 `unbound variable` 炸——变量后紧跟全角字符必须 `${PORT}）` 花括号（g2-emulator.sh
     两处实锤：启动横幅行炸中断过一轮复验、ALL PASS 行炸过收尾）。
+101. **D-6 约束的脚本层体现 + 引擎 0.1.5-rc.1 鉴权流（G2 回归批，2026-09-13）**：① 设备侧脚本若把
+    guest `usr/bin` 排在 PATH 前面，脚本自身用到的 `grep/head/cut` 会落到 Debian glibc 动态二进制上——
+    **裸 exec 直接 ENOENT**（"No such file or directory"，坑 97/98 的 PT_INTERP 机制）→ 启动/探针脚本
+    自身工具必须 `/system/bin`（toybox）优先：`PATH=/system/bin:$PATH`；引擎进程的 PATH 不受影响（其
+    子进程包装是 D-6 启动器 P2 原型的职责域）。② **引擎 0.1.5-rc.1 起 `/` 启用 token 鉴权，且是
+    303 门票兑换流**：`GET /?token=X` → 303 + `Set-Cookie: dsh-auth-…` → 带 cookie 访问 `/` → 200；
+    裸 token 请求 401，node fetch 无 cookie jar 跟重定向不背票——探针必须手动两步（redirect:'manual'
+    取 Set-Cookie → 带 cookie 再访），宿主 curl 用 cookie jar（`-c`/`-b`）。与壳侧 EngineAuth Cookie
+    流同构。③ 复跑残留引擎占端口（EADDRINUSE 二连）：g2-emulator.sh 启动前 `pkill -f 'bin.js web'`
+    清扫（EngineManager 同款特征）。
 
 
 
