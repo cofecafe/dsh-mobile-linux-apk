@@ -8,33 +8,40 @@
 # 前置：
 #   .deploy-tmp/tools/rootfs-arm64.tar        （snapshot.tar.xz 解压出的裸 tar，toybox tar 可解）
 #   .deploy-tmp/tools/proot-arm/data/data/com.termux/files/usr/{bin,libexec,lib}
-# 用法：scripts/g1-mumu.sh <adb端口> [adb路径]
+# 用法：scripts/g1-mumu.sh <adb端口|emulator-XXXX串号> [adb路径]
 set -euo pipefail
-PORT="${1:?用法: g1-mumu.sh <adb端口> [adb路径]}"
+PORT="${1:?用法: g1-mumu.sh <adb端口|emulator-XXXX> [adb路径]}"
 ADB="${2:-$(cd "$(dirname "$0")/.." && pwd)/.deploy-tmp/tools/platform-tools/adb}"
 TOOLS="$(cd "$(dirname "$0")/.." && pwd)/.deploy-tmp/tools"
 D=/data/local/tmp/g1
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
-"$ADB" connect "127.0.0.1:$PORT" >/dev/null
-"$ADB" devices | grep -q "127.0.0.1:$PORT.*device" || { echo "✗ 设备未连上"; exit 2; }
-S="$ADB -s 127.0.0.1:$PORT"
+if [[ "$PORT" == emulator-* ]]; then SER="$PORT"; else
+  "$ADB" connect "127.0.0.1:$PORT" >/dev/null; SER="127.0.0.1:$PORT"
+fi
+"$ADB" devices | grep -q "$SER.*device" || { echo "✗ 设备未连上"; exit 2; }
+S="$ADB -s $SER"
 
 ABI=$($S shell getprop ro.product.cpu.abi | tr -d '\r')
 REL=$($S shell getprop ro.build.version.release | tr -d '\r'); SDK=$($S shell getprop ro.build.version.sdk | tr -d '\r')
 KRN=$($S shell uname -r | tr -d '\r')
 echo "── 设备 ABI=$ABI Android=$REL SDK=$SDK 内核=$KRN"
-[ "$ABI" = "arm64-v8a" ] || { echo "✗ 只备了 arm64 载荷（ABI=$ABI）"; exit 3; }
+case "$ABI" in
+  arm64-v8a) A=arm; TAR=rootfs-arm64.tar ;;
+  x86_64)    A=x86; TAR=rootfs-x86_64.tar ;;
+  *) echo "✗ 不支持的 ABI=$ABI"; exit 3 ;;
+esac
 
-echo "── 1/6 推送载荷（proot ~2MB；rootfs 裸 tar 478MB，耐心）"
+echo "── 1/6 推送载荷（proot ~2MB；rootfs 裸 tar ~480MB，耐心）"
 $S shell "rm -rf $D; mkdir -p $D/hb/bin $D/hb/libexec/proot $D/hb/lib $D/tmp"
-$S push "$TOOLS/proot-arm/data/data/com.termux/files/usr/bin/proot"              "$D/hb/bin/proot" >/dev/null
-$S push "$TOOLS/proot-arm/data/data/com.termux/files/usr/libexec/proot/loader"   "$D/hb/libexec/proot/loader" >/dev/null
-$S push "$TOOLS/proot-arm/data/data/com.termux/files/usr/libexec/proot/loader32" "$D/hb/libexec/proot/loader32" >/dev/null
-$S push "$TOOLS/talloc-arm/data/data/com.termux/files/usr/lib/libtalloc.so.2"    "$D/hb/lib/libtalloc.so.2" >/dev/null
-[ -f "$TOOLS/rootfs-arm64.tar" ] || { echo "✗ 缺 $TOOLS/rootfs-arm64.tar"; exit 4; }
-$S push "$TOOLS/rootfs-arm64.tar" "$D/rootfs.tar" >/dev/null
+$S push "$TOOLS/proot-$A/data/data/com.termux/files/usr/bin/proot"              "$D/hb/bin/proot" >/dev/null
+$S push "$TOOLS/proot-$A/data/data/com.termux/files/usr/libexec/proot/loader"   "$D/hb/libexec/proot/loader" >/dev/null
+$S push "$TOOLS/proot-$A/data/data/com.termux/files/usr/libexec/proot/loader32" "$D/hb/libexec/proot/loader32" >/dev/null
+$S push "$TOOLS/talloc-$A/data/data/com.termux/files/usr/lib/libtalloc.so.2"       "$D/hb/lib/libtalloc.so.2" >/dev/null
+$S push "$TOOLS/shmem-$A/data/data/com.termux/files/usr/lib/libandroid-shmem.so"  "$D/hb/lib/libandroid-shmem.so" >/dev/null
+[ -f "$TOOLS/$TAR" ] || { echo "✗ 缺 $TOOLS/$TAR"; exit 4; }
+$S push "$TOOLS/$TAR" "$D/rootfs.tar" >/dev/null
 
 echo "── 2/6 设备端解包 rootfs（toybox tar）"
 $S shell "cd $D && tar -xf rootfs.tar && rm rootfs.tar && test -x rootfs/usr/bin/node && echo unpacked"
@@ -53,7 +60,7 @@ case "$1" in
   esbuild) exec $PROOT $D/rootfs/usr/bin/node $D/g1-esbuild.js ;;
   id)      exec $PROOT /usr/bin/id ;;
   pathtr)  exec $PROOT /bin/sh -c 'echo hi > /tmp/g1 && cat /tmp/g1 && echo path-translation OK' ;;
-  *)       exec $PROOT $D/rootfs/usr/bin/node "$@" ;;
+  *)       exec $PROOT /usr/bin/node "$@" ;;
 esac
 EOS
 cat > "$STAGE/g1-chain.js" <<'EJS'

@@ -292,6 +292,18 @@
     不影响 G1 本体（MuMu 的 Android 内核）与真机。防线：`scripts/rootfs-proot-pre.sh` 内核主版本 ≥7
     主动拒绝（exit 3 + 替代路径提示，FORCE_G1PRE=1 可强行复现）；G1-pre 换 GHA 6.x 内核 runner 跑。
     另注：trixie proot 5.4 需 GLIBC_2.38——验证容器必须 trixie+（bookworm 容器装不上，坑 96 连带）。
+97. **Android 模拟器上验证 proot 的三重壁与反证收获（4Debian G1 实测）**：① **MuMu Mac 版有登录墙**
+    （手机号验证码 + 7 天试用后付费）——免注册流程不可用；② **官方 AVD 在 Apple Silicon 拒 x86_64 镜像**
+    （FATAL: System image must match the host architecture——本机只剩 ARM64 镜像一条路）；③ **ARM64 AVD 上
+    Termux proot 5.1.107.92 的 exec 链死**（Android 14/内核 6.1.23 与 Android 15/内核 6.6.30 双复现、签名一致：
+    主程序运行✔、`-v 2` 日志显示 binary 与 ELF 解释器路径均翻译到位✔、execve 返回 ENOENT；`PROOT_NO_SECCOMP=1`
+    无效；页 4K、ELF 无 BTI/PAC 注记——非内核版本特异，疑 QEMU vCPU 与真机差异；真机 Termux proot 生态千万级
+    验证过，判决权在真机）。**反证收获（D-6 直启链成立）**：Debian 的 `ld-linux-aarch64.so.1` 无 PT_INTERP
+    （自足可执行）→ Android 内核可直接 exec 它；`ld.so + LD_LIBRARY_PATH=rootfs/usr/lib/aarch64-linux-gnu
+    + node` 在模拟器完整运行（v22.23.2，V8/模块系统/fs 全活）——但注意裸 exec 带 PT_INTERP 的 glibc 二进制
+    仍会 ENOENT（内核在宿主命名空间找 /lib/ld-linux…），fork+exec 子进程需全部经 ld.so 包装（D-6 启动器的
+    设计约束）。设备侧另实锤：解包面 mknod/hardlink 双拒 → 归档必须 `--exclude=rootfs/dev` +
+    `--hard-dereference`（已修入 build-rootfs-debian.mjs ⑥，坑 97 连带）。
 
 
 

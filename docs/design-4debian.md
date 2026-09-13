@@ -110,7 +110,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 | 阶段 | 内容 | 出口门禁 |
 |---|---|---|
 | **P0**（本提交） | ADR 文档 + rootfs 构建骨架与配置（dry-run 默认）+ 分支建立 | 骨架 dry-run 可跑 |
-| **P1** rootfs PoC | x86_64 模拟器（MuMu）优先：debootstrap minbase → 装包 → 瘦身 → 归档；手工 proot 引导 | **进行中**：构建链✅（arm64/x86_64 双 ABI 绿，Docker 平台容器）+ **G3-lite✅**（arm64：esbuild/sharp 预编译直装即用；x86_64 待烟测）；**G1-pre 阻断于本机**（坑 96：OrbStack 7.0 内核 proot 全 tracee SIGSEGV，5.2/5.4 双版本复现——脚本已加内核护栏，换 GHA 6.x runner 或直接 MuMu）；待：**G1** proot 启动链（MuMu）、**G2** rootfs 内引擎起来、**G3 完整版**、**G4** R-1 缓解在 Android 16 真机验证 |
+| **P1** rootfs PoC | x86_64 模拟器（MuMu）优先：debootstrap minbase → 装包 → 瘦身 → 归档；手工 proot 引导 | **进行中**：构建链✅（arm64/x86_64 双 ABI 绿）+ **G3-lite✅**（双 ABI：esbuild/sharp 预编译直装即用）+ **G1 关键证据✅**（官方 AVD·Android 14 ARM64：`ld.so + LD_LIBRARY_PATH + node` 直启链完整运行 v22.23.2——**D-6 备胎前提全部验证**；proot 完整链在 ARM64 模拟器环境性受阻，坑 97 三重壁记录，判决移至真机）；待：**G1-proot 真机裁决**（与 G4 合并一次实验）、**G2** rootfs 内引擎起来、**G3 完整版**、**G4** R-1 缓解在 Android 16 真机验证 |
 | **P2** 壳侧集成 | 解压契约、启动链、DNS、绑定表、控制台、探针 | MuMu 模拟器 V1-V8 矩阵全绿 |
 | **P3** 更新双轨 | manifest channel 扩展、探针门控、灰度下发 | 模拟器上双通道切换/回退无残留 |
 | **P4** 性能门禁 | 对比 Termux 基线：引擎冷启、pnpm install（中型仓）、rg 大仓搜索、git status（大仓） | 阈值 **≤3×**；超限 → D-6 备胎评估或终止决策（回滚成本 = 弃分支，main 零污染） |

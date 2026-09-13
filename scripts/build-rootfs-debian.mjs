@@ -167,8 +167,11 @@ if (RUN) {
 }
 
 // ── 6. 归档 + 指纹（rootfs/ + home/，--numeric-owner）──────────────────
-step('⑥ tar.xz 归档（owner=0）',
-  `cd ${WORK} && tar --numeric-owner --sort=name ` +
+// 坑 97（G1 实测）：Android 应用与 shell 均无权 mknod / 建 hardlink ——
+//   ① 剥离 rootfs/dev（proot -R 绑定宿主 /dev，rootfs 内设备节点无用且解包必炸）
+//   ② --hard-dereference（perl/gzip 等硬链接在 /data 落盘 Permission denied，代价 ~几 MB）
+step('⑥ tar.xz 归档（owner=0，剥 dev + 硬链接展开）',
+  `cd ${WORK} && tar --numeric-owner --sort=name --hard-dereference --exclude=rootfs/dev ` +
   `${process.env.SOURCE_DATE_EPOCH ? `--mtime=@${process.env.SOURCE_DATE_EPOCH} ` : ''}` +
   `-cJf ${TARBALL} rootfs home`)
 
