@@ -10,9 +10,11 @@
 //        ⑥ 归档 snapshot.tar.xz（rootfs/ + home/.dsh + home/.gitconfig，--numeric-owner）
 // 输出：.deploy-tmp/rootfs-debian/<abi>/snapshot.tar.xz + .sha256 + rootfs-fingerprint.txt
 //
-// 状态：P0 骨架（design-4debian.md §6 P1 起实施）。--run 需 Linux 宿主（WSL2/CI）：
-//   - 同 ABI 宿主：debootstrap 直接 chroot；
-//   - 跨 ABI（x86_64 宿主编 arm64）：需 qemu-user-static 与 binfmt_misc 注册；
+// 状态：P0 骨架（design-4debian.md §6 P1 起实施）。--run 宿主策略（R-7）：
+//   - Linux 原生：同 ABI 直接 chroot；跨 ABI 需 qemu-user-static + binfmt_misc；
+//   - Windows：转 WSL 内执行（同 build-snapshot-013.mjs 判例）；
+//   - macOS：自动转入 Docker 平台匹配容器（node:22-bookworm --platform 按目标 ABI，
+//     容器内原生 debootstrap、无需 qemu；DSH_ROOTFS_NO_DOCKER=1 或缺 docker 即拒）。
 //   缺件即拒（不静默降级）。dry-run（默认）打印完整计划与命令，供评审与 CI 冒烟。
 //
 // 用法：node scripts/build-rootfs-debian.mjs <arm64|x86_64> [--run]
@@ -58,22 +60,51 @@ function step(title, cmd, opts = {}) {
 
 log0(`模式=${RUN ? 'RUN' : 'DRY-RUN'}；套件=${CFG.suite}；目标 arch=${DEB_ARCH}`)
 
-// ── 0. 宿主工具链检查（--run 时缺件即拒）───────────────────────────────
+// ── 0. 宿主平台策略与工具链检查（--run 时缺件即拒）─────────────────────
+function hasTool(t) {
+  return spawnSync('command', ['-v', t], { shell: '/bin/bash' }).status === 0
+}
 function requireTools(tools) {
-  const missing = tools.filter((t) => spawnSync('command', ['-v', t], { shell: '/bin/bash' }).status !== 0)
+  const missing = tools.filter((t) => !hasTool(t))
   if (missing.length > 0) {
     console.error(`宿主缺件：${missing.join(', ')}（安装后重试；dry-run 不受影响）`)
     process.exit(2)
   }
 }
-if (RUN) {
-  const cross = process.arch !== (ABI === 'arm64' ? 'arm64' : 'x64')
-  requireTools(['debootstrap', 'tar', 'xz', ...(cross ? [`qemu-${DEB_ARCH === 'arm64' ? 'aarch64' : 'x86_64'}-static`] : [])])
+if (RUN && process.env.DSH_ROOTFS_IN_CONTAINER !== '1') {
   if (process.platform === 'win32') {
     // 与 build-snapshot-013.mjs 同判：Windows 宿主转 WSL 内执行（DSH_NO_WSL_REEXEC=1 跳过）。
     console.error('Windows 宿主请在 WSL 内执行（wsl.exe -e bash -lc "cd <repo> && node scripts/build-rootfs-debian.mjs ' + ABI + ' --run"）')
     process.exit(2)
   }
+  if (process.platform === 'darwin') {
+    // macOS 无 debootstrap，chroot 也不执行 Linux ELF —— 自动转入 Docker 平台匹配容器：
+    // 目标 arm64 → linux/arm64（Apple Silicon 原生）；目标 x86_64 → linux/amd64（Rosetta/qemu 仿真）。
+    // 容器内 DSH_ROOTFS_IN_CONTAINER=1，回落后即 Linux 原生路径（同 ABI，无需 qemu-user-static）。
+    if (process.env.DSH_ROOTFS_NO_DOCKER === '1' || !hasTool('docker')) {
+      console.error([
+        'macOS 宿主无法原生构建 Linux rootfs（无 debootstrap；chroot 不执行 Linux ELF）。',
+        '可选路径：① 安装 Docker Desktop / OrbStack 后重跑（自动转入平台匹配容器，无需 qemu）；',
+        '② Linux / WSL2 宿主直接 --run；③ GHA linux runner（云端自包含构建）。',
+        '仅评审构建计划：去掉 --run（dry-run 不受限）。',
+      ].join('\n'))
+      process.exit(2)
+    }
+    const platform = DEB_ARCH === 'arm64' ? 'linux/arm64' : 'linux/amd64'
+    const inner = `apt-get update && apt-get install -y --no-install-recommends debootstrap && node scripts/build-rootfs-debian.mjs ${ABI} --run`
+    const cmd = 'docker run --rm --platform ' + platform +
+      ' -v ' + ROOT + ':' + ROOT + ' -w ' + ROOT + ' -e DSH_ROOTFS_IN_CONTAINER=1' +
+      (process.env.SOURCE_DATE_EPOCH ? ' -e SOURCE_DATE_EPOCH=' + process.env.SOURCE_DATE_EPOCH : '') +
+      ' node:22-bookworm bash -lc ' + JSON.stringify(inner)
+    log0(`macOS → Docker 平台匹配容器内执行（${platform}${platform === 'linux/amd64' ? '，Apple Silicon 上走 Rosetta/qemu 仿真' : ''}）`)
+    log0(`产物经卷挂载落回 ${OUT_DIR}（macOS 卷 I/O 慢——如成瓶颈见 design-4debian.md R-7）`)
+    const r = spawnSync(cmd, { shell: '/bin/bash', stdio: 'inherit' })
+    process.exit(typeof r.status === 'number' ? r.status : 1)
+  }
+}
+if (RUN) {
+  const cross = process.arch !== (ABI === 'arm64' ? 'arm64' : 'x64')
+  requireTools(['debootstrap', 'tar', 'xz', ...(cross ? [`qemu-${DEB_ARCH === 'arm64' ? 'aarch64' : 'x86_64'}-static`] : [])])
 }
 
 // ── 1. rootfs 引导（debootstrap minbase）───────────────────────────────
