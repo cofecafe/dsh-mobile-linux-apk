@@ -1,6 +1,6 @@
 # 4Debian：Debian 用户态运行时决策与实施蓝图（ADR-D）
 
-> 版本 v0.1.1（P0）｜ 2026-09-13 ｜ 分支 `4Debian`（未合入 main）｜ 状态：**方向已决策**（2026-09-13 用户 Discord 确认选项 A），实施未开始。v0.1.1：R-7 补 macOS 宿主路径（Docker 平台容器，当前开发机）。
+> 版本 v0.2（P1 进行中）｜ 2026-09-13 ｜ 分支 `4Debian`（未合入 main）｜ 状态：方向已决策；**P1 首战：arm64 rootfs 构建链全绿 + G3-lite 烟测全过**（esbuild/sharp 预编译包直装即用）；G1/G2（proot+模拟器）、G4（Android 16 真机）未做。v0.1.1：R-7 补 macOS 宿主路径（Docker 平台容器，当前开发机）。
 > 决策一句话：**APK 发布形态不变；把 APK 内嵌用户态从 Termux 快照换为 Debian rootfs（proot 引导、无 root），作为可在线下发的第二运行通道；全部改动在 `4Debian` 分支管理。**
 
 ---
@@ -110,7 +110,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 | 阶段 | 内容 | 出口门禁 |
 |---|---|---|
 | **P0**（本提交） | ADR 文档 + rootfs 构建骨架与配置（dry-run 默认）+ 分支建立 | 骨架 dry-run 可跑 |
-| **P1** rootfs PoC | x86_64 模拟器（MuMu）优先：debootstrap minbase → 装包 → 瘦身 → 归档；手工 proot 引导 | **G1** proot 启动链通（模拟器）；**G2** rootfs 内 node `dsh web` 起来（127.0.0.1:3080）；**G3** rg/git/pnpm 烟测 + **esbuild/sharp 预编译包直接可用**（动机正面证明）；**G4** R-1 缓解 A/B/（C 回落）在 Android 16 真机验证 |
+| **P1** rootfs PoC | x86_64 模拟器（MuMu）优先：debootstrap minbase → 装包 → 瘦身 → 归档；手工 proot 引导 | **进行中**：构建链✅（arm64 全绿，78.4MB/505MB，Docker 平台容器）+ **G3-lite✅**（`scripts/rootfs-smoke.sh`：esbuild 0.28.2 / sharp 预编译直装即用）；待：**G1** proot 启动链（模拟器）、**G2** rootfs 内引擎起来、**G3 完整版**（rg/git/pnpm 烟测）、**G4** R-1 缓解在 Android 16 真机验证 |
 | **P2** 壳侧集成 | 解压契约、启动链、DNS、绑定表、控制台、探针 | MuMu 模拟器 V1-V8 矩阵全绿 |
 | **P3** 更新双轨 | manifest channel 扩展、探针门控、灰度下发 | 模拟器上双通道切换/回退无残留 |
 | **P4** 性能门禁 | 对比 Termux 基线：引擎冷启、pnpm install（中型仓）、rg 大仓搜索、git status（大仓） | 阈值 **≤3×**；超限 → D-6 备胎评估或终止决策（回滚成本 = 弃分支，main 零污染） |
@@ -123,7 +123,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 
 - **R-1【最高】Android 16+ exec 拒绝**：EngineManager.kt:1212 注释实锤（vivo/Android 16，targetSdk 34 不豁免，直 exec EACCES）；现行解法是 bionic 钩子改走 `/system/bin/linker64`，**救不了 glibc tracee**。缓解候选：**A)** rootfs `/etc/ld.so.preload` 挂 glibc 版 execve 钩子（需 PoC：bionic linker64 能否装载 glibc ELF 的 DT_NEEDED 链）；**B)** proot 执行路径调整（PTRACE_SYSEMU 层面）；**C)** 双轨回落（D-3，Android 16+ 设备只给 Termux 通道）。G1/G4 第一优先验证。
 - **R-2【高】proot ptrace 开销**：fork/stat 密集操作（pnpm install、git、大仓 rg）常见 1.5-3× 慢。P4 阈值卡门；备胎 D-6（glibc 直启，无 ptrace；但 R-1 同样适用于直启链）。
-- **R-3【中】体积**：预估 rootfs xz 300-350MB / 解压 ~1GB（现 Termux 快照 xz ~155MB / ~740MB）。D-3 双轨 + 在线下发规避 APK 膨胀；解压时长增长（坑 37 的 8-12 分钟窗口会拉长）。
+- **R-3【低→实测好于预估】体积**：**P1 实测 arm64：xz 78.4MB / 解压 505MB**（原预估 300–350MB / ~1GB——minbase + 剥离干净 + 无编译链的收益；参照 Termux 快照 xz ~155MB / 解压 ~740MB）。注意尚未注入 dsh overlay/插件，最终体积待注入后复核。D-3 双轨 + 在线下发仍保留（APK 不膨胀）。解压时长窗口（坑 37 口径）预计短于现快照。
 - **R-4【中】DNS/网络**：resolv.conf 生成时机（每次引擎启动前）、VPN / 私有 DNS 方差（P2 实测）。
 - **R-5【中】厂商方差**：SELinux 域收紧机型、存储挂载差异影响 `-b` 绑定表（MIUI 兼容前科；按机型回归）。
 - **R-6【中】GPL 合规面扩大**：Debian 包大量 GPL/AGPL；三形态在场规则（docs/AGENTS/gpl-compliance.md）需扩展到 dpkg copyright 抽取链路。
@@ -141,7 +141,7 @@ EngineManager → ConnectivityManager.getLinkProperties(activeNetwork).dnsServer
 
 | # | 问题 | 决策时点 |
 |---|---|---|
-| Q1 | node 来源：NodeSource 22.x vs bookworm 自带 nodejs 18.19（引擎基线 nodejs-lts） | P1（rootfs PoC 时定版） |
+| Q1 | node 来源：NodeSource 22.x vs bookworm 自带 nodejs 18.19（引擎基线 nodejs-lts） | P1 实装 NodeSource **22.23.2**（构建+烟测绿）；待与引擎 nodejs-lts 基线终核后定版 |
 | Q2 | 快照布局定案：`rootfs/` vs 复用 `usr/` 装 Debian 树 | P2（倾向 `rootfs/`，D-4） |
 | Q3 | R-1 缓解 A 的 linker64 装载 glibc ELF 可行性 | P1 第一优先 PoC（G4） |
 | Q4 | 插件/DSL 里 Termux 路径硬编码面盘点（linux-env 环境配方等） | P2 |
