@@ -112,6 +112,14 @@ if (!nasVer) throw new Error('node-addon-system@0.1.2 未声明平台包版本')
 const nasPlat = `@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}`
 await overlayTgz(nasPlat, nasVer)
 log(`node-addon-system 平台包 ${nasPlat}@${nasVer} 就绪`)
+
+// @napi-rs/canvas 平台包（坑108 同类：optionalDependencies 暗缺 → 引擎警告 Cannot find native
+// binding，图片渲染/read_image 全废；版本锁 base-dsh profile 里的 canvas 主包）
+const canvasVer = JSON.parse(execFileSync('tar',
+  ['-xJOf', BASE_DSH, 'home/.dsh/profiles/web/node_modules/@napi-rs/canvas/package.json'], { encoding: 'utf-8' })).version
+const canvasPlat = `@napi-rs/canvas-linux-${ABI === 'arm64' ? 'arm64-gnu' : 'x64-gnu'}`
+await overlayTgz(canvasPlat, canvasVer)
+log(`canvas 平台包 ${canvasPlat}@${canvasVer} 就绪`)
 log(`overlay tgz 就绪 · koffi 平台包 ${koffiPlat}@${koffiVer}`)
 
 // ── 2. manifest（tgz 文件名 + 目标相对 NM 路径；npm 布局下 scoped 名即路径）────
@@ -148,6 +156,20 @@ for f in rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/dsh-android-file-
   [ -f "\$f" ] && sed -i "s/127\\.0\\.0\\.1:3080/127.0.0.1:3081/g; s/localhost:3080/localhost:3081/g" "\$f"
 done
 grep -r -l 3080 rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/ 2>/dev/null && { echo "残留 3080 硬编码"; exit 6; } || true
+
+echo "[容器] ①b resolv.conf 消毒（坑108：构建容器的 Docker 内部 DNS 会烤进 rootfs——0.x 不可路由，guest 全量出站 ENOTFOUND：模型 API/z.ai/插件市场全断）"
+printf "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 8.8.8.8\n" > rootfs/etc/resolv.conf
+grep -q "nameserver 0\." rootfs/etc/resolv.conf && { echo "resolv.conf 仍含 0.x"; exit 7; } || true
+
+echo "[容器] ④d @napi-rs/canvas 平台包（坑108 同类暗缺 → Cannot find native binding，图片渲染废）"
+rm -rf /tmp/canvaspkg; mkdir -p /tmp/canvaspkg
+tar -xzf "${rp(join(CACHE, cacheFile(canvasPlat, canvasVer)))}" -C /tmp/canvaspkg
+for P in rootfs/home/.dsh/profiles/web rootfs/home/.dsh/profiles/headless; do
+  [ -d "\$P/node_modules/@napi-rs" ] || continue
+  rm -rf "\$P/node_modules/${canvasPlat}"
+  cp -a "/tmp/canvaspkg/package" "\$P/node_modules/${canvasPlat}"
+done
+test -f "rootfs/home/.dsh/profiles/web/node_modules/${canvasPlat}/skia.linux-${ABI === 'arm64' ? 'arm64' : 'x64'}-gnu.node" || { echo "canvas 平台包缺失"; exit 8; }
 E=rootfs/usr/lib/node_modules/@deepseek-ai/dsh
 NM=\$E/node_modules
 echo "[容器] ② 引擎 overlay（登记表驱动，保留旧包嵌套 node_modules）"
