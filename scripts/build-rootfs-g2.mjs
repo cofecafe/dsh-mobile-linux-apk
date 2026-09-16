@@ -157,6 +157,18 @@ for f in rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/dsh-android-file-
 done
 grep -r -l 3080 rootfs/home/.dsh/profiles/*/node_modules/@dsh-android/ 2>/dev/null && { echo "残留 3080 硬编码"; exit 6; } || true
 
+# ── ①c shell-termux 配置对齐（坑110 用户实测定版）：上游快照 yml 的 prefix 指
+#    files/usr（顶层）——那里只有 Termux 时代孤儿 bash（缺 libtinfo 跑不动）；完整
+#    工具链在双层 usr（files/usr/usr/bin/bash + libtinfo ✓ 实测 GUEST-BASH-OK）。
+#    bashPath 上游已双 usr；prefix 统一双 usr；home/cwd 保持 files/home（与
+#    EngineManager HOME 一致，rootfs 的 home/ 条目经事务 livePath 落位 files/home）。
+#    旧包名门禁防 Termux 惯性再泄（坑1：跨应用 uid 私有目录互不可见）。
+for Y in rootfs/home/.dsh/profiles/*/cordis.patch.yml; do
+  [ -f "\$Y" ] && sed -i "s#^\\(\\s*prefix:\\s\\)/data/data/com\\.dsharnessmobile\\.shell4d/files/usr\\s*\\$#\\1/data/data/com.dsharnessmobile.shell4d/files/usr/usr#" "\$Y"
+done
+grep -qE "^\s*prefix:\s*/data/data/com\.dsharnessmobile\.shell4d/files/usr\s*$" rootfs/home/.dsh/profiles/*/cordis.patch.yml 2>/dev/null && { echo "prefix 仍指单层 usr（孤儿 bash 区）"; exit 9; } || true
+grep -q "/data/data/com\.dsharnessmobile\.shell/" rootfs/home/.dsh/profiles/*/cordis.patch.yml 2>/dev/null && { echo "yml 泄漏旧应用包名"; exit 10; } || true
+
 echo "[容器] ①b resolv.conf 消毒（坑108：构建容器的 Docker 内部 DNS 会烤进 rootfs——0.x 不可路由，guest 全量出站 ENOTFOUND：模型 API/z.ai/插件市场全断）"
 printf "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 8.8.8.8\n" > rootfs/etc/resolv.conf
 grep -q "nameserver 0\." rootfs/etc/resolv.conf && { echo "resolv.conf 仍含 0.x"; exit 7; } || true

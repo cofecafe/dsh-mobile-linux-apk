@@ -142,6 +142,97 @@ static int d6_is_glibc_elf(const char *abs)
   return 0; /* 无 PT_INTERP = 静态 → 非 guest glibc */
 }
 
+/* ── 坑110：bionic 目标 LD_PRELOAD 消毒 ────────────────────────────────
+ * 钩子靠 EngineManager 注入的 LD_PRELOAD 传播，但它是 glibc 构建——被 exec 的
+ * bionic 程序（/system/bin/sh、curl、toybox…PT_INTERP=/system/bin/linker64）
+ * 由 bionic 链接器加载时直接 "CANNOT LINK EXECUTABLE: libc.so.6 not found"。
+ * 原样 exec 出口统一判定：目标是 bionic ELF（或 shebang 解释器为 bionic）→
+ * 从 envp 摘掉 LD_PRELOAD 再交内核。静态/musl 二进制无 PT_INTERP，不受影响。
+ * 覆盖 execve/execv/execvp/execvpe/posix_spawn{,p}（execl 族内部转 execve）。
+ */
+static int d6_elf_interp_has(const char *abs, const char *needle)
+{
+  unsigned char buf[1024];
+  int fd = open(abs, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return 0;
+  ssize_t n = read(fd, buf, sizeof buf);
+  close(fd);
+  if (n < 64 || !(buf[0] == 0x7f && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F')) return 0;
+  if (buf[4] != 2) return 0;
+  uint16_t phoff, phentsize, phnum;
+  memcpy(&phoff, buf + 32, 2);
+  memcpy(&phentsize, buf + 54, 2);
+  memcpy(&phnum, buf + 56, 2);
+  for (int i = 0; i < phnum; i++) {
+    size_t off = phoff + (size_t)i * phentsize;
+    if (off + phentsize > (size_t)n || off + 56 > sizeof buf) break;
+    uint32_t p_type, p_offset, p_filesz;
+    memcpy(&p_type, buf + off, 4);
+    memcpy(&p_offset, buf + off + 8, 4);
+    memcpy(&p_filesz, buf + off + 32, 4);
+    if (p_type != 3 /* PT_INTERP */) continue;
+    char interp[D6_MAX_INTERP];
+    if (p_offset < sizeof buf && p_offset + p_filesz <= sizeof buf) {
+      snprintf(interp, sizeof interp, "%s", (char *)buf + p_offset);
+    } else {
+      int f2 = open(abs, O_RDONLY | O_CLOEXEC);
+      if (f2 < 0) return 0;
+      ssize_t m = pread(f2, interp, sizeof interp - 1, p_offset);
+      close(f2);
+      if (m <= 0) return 0;
+      interp[m] = 0;
+    }
+    return strstr(interp, needle) != NULL;
+  }
+  return 0; /* 静态 */
+}
+
+/* 目标（ELF 或 shebang）是否 bionic 链接（linker64）*/
+static int d6_is_bionic_target(const char *abs)
+{
+  if (d6_elf_interp_has(abs, "linker")) return 1;
+  /* shebang：解释器 bionic → 脚本进程也带钩子毒 */
+  unsigned char buf[2];
+  int fd = open(abs, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return 0;
+  ssize_t n = read(fd, buf, 2);
+  close(fd);
+  if (n == 2 && buf[0] == '#' && buf[1] == '!') {
+    unsigned char line[1024];
+    fd = open(abs, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    n = read(fd, line, sizeof line);
+    close(fd);
+    if (n > 2) {
+      char *interp = d6_shebang_interp(line, n);
+      if (!interp) return 0;
+      int b = d6_elf_interp_has(interp, "linker");
+      free(interp);
+      return b;
+    }
+  }
+  return 0;
+}
+
+/* envp 副本去掉 LD_PRELOAD= 条目；无需过滤返回 NULL（caller 不接管内存）*/
+static char **d6_env_without_preload(char *const envp[])
+{
+  if (!envp) return NULL;
+  int has = 0, cnt = 0;
+  for (char *const *e = envp; *e; e++) {
+    cnt++;
+    if (strncmp(*e, "LD_PRELOAD=", 11) == 0) has = 1;
+  }
+  if (!has) return NULL;
+  char **out = malloc(sizeof(char *) * (size_t)(cnt + 1));
+  if (!out) return NULL;
+  int k = 0;
+  for (char *const *e = envp; *e; e++)
+    if (strncmp(*e, "LD_PRELOAD=", 11) != 0) out[k++] = *e;
+  out[k] = NULL;
+  return out;
+}
+
 /* 包装计划：目标需要包装时输出 prog（实际程序）与 extra（shebang 的脚本路径）。
  * 返回 1=需包装（*prog 已 malloc，*extra 可能 NULL）0=放行 -1=判定失败（按放行） */
 static int d6_wrap_plan(const char *abs, char **prog, char **extra)
@@ -250,6 +341,12 @@ int execve(const char *path, char *const argv[], char *const envp[])
         return rc;
       }
     }
+    if (abs && d6_is_bionic_target(abs)) { /* 坑110：bionic 摘毒 */
+      char **env2 = d6_env_without_preload(envp);
+      int rc = real(path, argv, env2 ? env2 : envp);
+      free(env2); free(abs);
+      return rc;
+    }
     free(abs);
   }
   return real(path, argv, envp);
@@ -278,6 +375,20 @@ int execv(const char *path, char *const argv[])
         return rc;
       }
     }
+    if (abs && d6_is_bionic_target(abs)) { /* 坑110：bionic 摘毒（execv 用 environ） */
+      extern char **environ;
+      char **env2 = d6_env_without_preload(environ);
+      int rc;
+      if (env2) {
+        static int (*realve)(const char *, char *const[], char *const[]);
+        if (!realve) realve = dlsym(RTLD_NEXT, "execve");
+        rc = realve(path, argv, env2);
+      } else {
+        rc = real(path, argv);
+      }
+      free(env2); free(abs);
+      return rc;
+    }
     free(abs);
   }
   return real(path, argv);
@@ -300,6 +411,20 @@ static int d6_execvp_impl(int (*realfn)(const char *, char *const[]), const char
         free(w); free(prog); free(extra); free(abs);
         return rc;
       }
+    }
+    if (abs && d6_is_bionic_target(abs)) { /* 坑110：bionic 摘毒（execvp 族走 environ） */
+      extern char **environ;
+      char **env2 = d6_env_without_preload(environ);
+      int rc;
+      if (env2) {
+        static int (*realve)(const char *, char *const[], char *const[]);
+        if (!realve) realve = dlsym(RTLD_NEXT, "execve");
+        rc = realve(abs, argv, env2);
+      } else {
+        rc = realfn(file, argv);
+      }
+      free(env2); free(abs);
+      return rc;
     }
     free(abs);
   }
@@ -329,6 +454,12 @@ int execvpe(const char *file, char *const argv[], char *const envp[])
         free(w); free(prog); free(extra); free(abs);
         return rc;
       }
+    }
+    if (abs && d6_is_bionic_target(abs)) { /* 坑110：bionic 摘毒 */
+      char **env2 = d6_env_without_preload(envp);
+      int rc = real(abs, argv, env2 ? env2 : envp);
+      free(env2); free(abs);
+      return rc;
     }
     free(abs);
   }
@@ -388,6 +519,12 @@ static int d6_spawn_impl(int (*realfn)(pid_t *, const char *, const posix_spawn_
         free(w); free(prog); free(extra); free(abs);
         return rc;
       }
+    }
+    if (abs && d6_is_bionic_target(abs)) { /* 坑110：bionic 摘毒（node/libuv 主路径） */
+      char **env2 = d6_env_without_preload(envp);
+      int rc = realfn(pid, abs, fa, attr, argv, env2 ? env2 : envp);
+      free(env2); free(abs);
+      return rc;
     }
     free(abs);
   }
