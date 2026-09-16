@@ -414,3 +414,10 @@
     ③ **DNS 路线互证（坑109 闭环）**：用户独立发现同根因（Android 无 /etc/resolv.conf 且 /etc 只读 → musl+glibc 解析器全死，只有 bionic 走 netd），并实测证实「绑 127.0.0.1:53 兜底」死路（**Android 禁应用绑 <1024 端口**——坑109 时的推断成为实锤）。用户解法=python CONNECT 代理（8888）+ 自建 UDP DNS（直发 8.8.8.8）+ HTTPS_PROXY 隧道；与钩子 getaddrinfo 混合拦截殊途同归。**用户还踩了 DNS 报文手搓坑：qname 漏结尾 \x00 根标签**（与我们 12 字节头少 2 同类——wire format 手搓双经典）。
     ④ **seccomp SIGSYS 复现（node -e/npm Bad system call）**：node --version 活但 -e/npm 炸=完整运行时初始化踩白名单外 syscall（M1 坑104 同源；05 ½ 补丁覆盖 node 主程序，用户路径可能撞到未覆盖的 glibc 初始化面）。用户绕法=静态 musl 二进制（无 glibc 依赖+能过 seccomp）——**musl 静态版是 app 域跑第三方工具的通用范式**。
     ⑤ **write 工具 EACCES（fs 禁 link()）**：临时文件+rename 原子写在 Android 应用卷失效力 → heredoc 直写。另：`pkill -f` 自杀（用 pidfile）；X_OK 探测只查存在不验证可执行；403≠IP 封锁（Cloudflare 拦裸 HEAD）。
+
+111. **pnpm 缺位：插件安装全灭（2026-09-16 vivo 实锤）**——「dsh: pnpm not found on PATH — install pnpm to manage profile plugins」：
+    **根因**：上游 v0.14.0-preview 快照的 profile 本就是 pnpm 布局（node_modules/.pnpm 目录树），引擎插件管理 shell 出 `pnpm`；Debian g2 基座只带 npm/corepack，pnpm 从未进 rootfs（Termux 快照有、Debian 换血时丢了）。
+    **修法**：g2 ④e 步——缓存锁 `pnpm-10.14.0.tgz`（`.deploy-tmp/engine-overlay/`，`npm pack pnpm@10.14.0 --cache /tmp/npmcache-fresh` 产出，纯 JS 跨架构无痛）解到 `rootfs/usr/lib/node_modules/pnpm` + `ln -sf` bin。断言 exit 11。
+    **shebang 反坑（坑97 余波）**：pnpm.cjs 原生 `#!/usr/bin/env node` 是「解释器+单参数」模式——d6_shebang_interp 明确不支持单参数；改 `#!/usr/bin/node`（guest 树绝对路径，钩子重映射 $D6_ROOT/usr/bin/node → ld.so 包装 exec）即通。
+    **验证法**：guest env 全链 spawn `pnpm --version` → 10.14.0（模拟引擎 PATH 命中 files/usr/usr/bin/pnpm 的真实路径）。
+    **伴生小坑**：gradle 增量打包 APK 尾部空间膨胀（内容 232MB 显示 459MB，python zipfile 验内容正常）——clean 重打即消。

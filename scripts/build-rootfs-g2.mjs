@@ -220,6 +220,18 @@ rm -rf "\$NM/@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 
 cp -a "/tmp/naspkg/package" "\$NM/@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}"
 test -f "\$NM/@deepseek-ai/node-addon-system-linux-${ABI === 'arm64' ? 'arm64' : 'x64'}/bin/glibc/system.node" || { echo "node-addon-system 平台包缺失"; exit 5; }
 
+echo "[容器] ④e pnpm（坑111：引擎装插件 shell 出 pnpm——Debian 基座只有 npm/corepack，pnpm 缺位即「pnpm not found on PATH」插件全装不了）"
+rm -rf /tmp/pnpmpkg; mkdir -p /tmp/pnpmpkg
+tar -xzf "${rp(join(CACHE, 'pnpm-10.14.0.tgz'))}" -C /tmp/pnpmpkg
+mkdir -p rootfs/usr/lib/node_modules
+rm -rf rootfs/usr/lib/node_modules/pnpm
+cp -a /tmp/pnpmpkg/package rootfs/usr/lib/node_modules/pnpm
+# shebang 改 guest 树绝对路径：#!/usr/bin/env node 的 env+单参数模式钩子不支持
+# （d6_shebang_interp 无参版本），改 #!/usr/bin/node → 钩子重映射 $D6_ROOT/usr/bin/node 包装 exec
+sed -i "1s|.*|#!/usr/bin/node|" rootfs/usr/lib/node_modules/pnpm/bin/pnpm.cjs
+ln -sf ../lib/node_modules/pnpm/bin/pnpm.cjs rootfs/usr/bin/pnpm
+test -f rootfs/usr/bin/pnpm || { echo "pnpm bin 缺失"; exit 11; }
+
 echo "[容器] ⑤ D-6 启动器钩子（LD_PRELOAD exec 族拦截器，P2 原型）"
 mkdir -p rootfs/opt/d6
 cp ${rp(join(ROOT, `.deploy-tmp/tools/d6-exec-hook-${TARBALL_ABI}.so`))} rootfs/opt/d6/libd6exec.so
